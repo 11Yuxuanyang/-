@@ -187,82 +187,68 @@ export function HomePage(_props: HomePageProps) {
         </div>
       </header>
 
-      {/* Hero Section - Pixel Style */}
-      <div className="relative pt-16 pb-12 px-6 bg-white overflow-hidden">
-        {/* Pixel Decorations */}
+      {/* Hero Section - Premium Minimal */}
+      <div className="relative pt-20 pb-16 px-6 bg-[#fafafa] overflow-hidden">
+        {/* Subtle Background Pattern */}
         <div className="absolute inset-0 pointer-events-none">
-          {/* Pixel blocks - left side */}
-          <div className="absolute top-20 left-[10%] flex gap-1" style={{ animation: 'fadeIn 1s ease-out 0.3s both' }}>
-            <div className="w-3 h-3 bg-[#FF6B6B]" />
-            <div className="w-3 h-3 bg-[#4ECDC4]" />
-          </div>
-          <div className="absolute top-32 left-[8%]" style={{ animation: 'fadeIn 1s ease-out 0.5s both' }}>
-            <div className="w-2 h-2 bg-[#FFE66D]" />
-          </div>
-
-          {/* Pixel blocks - right side */}
-          <div className="absolute top-24 right-[12%] flex flex-col gap-1" style={{ animation: 'fadeIn 1s ease-out 0.4s both' }}>
-            <div className="flex gap-1">
-              <div className="w-2 h-2 bg-[#95E1D3]" />
-              <div className="w-2 h-2 bg-[#95E1D3]" />
-            </div>
-            <div className="w-2 h-2 bg-[#95E1D3] ml-1" />
-          </div>
-          <div className="absolute top-40 right-[8%] flex gap-1" style={{ animation: 'fadeIn 1s ease-out 0.6s both' }}>
-            <div className="w-3 h-3 bg-[#DDA0DD]" />
-          </div>
-
-          {/* Pixel cursor icon - left */}
-          <div className="absolute bottom-32 left-[15%] opacity-40" style={{ animation: 'float 3s ease-in-out infinite' }}>
-            <svg width="24" height="24" viewBox="0 0 16 16" fill="none">
-              <path d="M2 2h2v2H2V2zm2 2h2v2H4V4zm2 2h2v2H6V6zm2 2h2v2H8V8zm2 2h2v2h-2v-2zm-2 2h2v2H8v-2zm-2-2h2v2H6v-2z" fill="#4ECDC4"/>
-            </svg>
-          </div>
-
-          {/* Pixel star - right */}
-          <div className="absolute bottom-40 right-[18%] opacity-50" style={{ animation: 'pulse 2s ease-in-out infinite' }}>
-            <svg width="20" height="20" viewBox="0 0 8 8" fill="none">
-              <path d="M3 0h2v2h2v2h-2v2H3V4H1V2h2V0z" fill="#FFE66D"/>
-            </svg>
-          </div>
+          <div
+            className="absolute inset-0 opacity-[0.03]"
+            style={{
+              backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23000000' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
+            }}
+          />
+          {/* Decorative circles */}
+          <div
+            className="absolute -top-20 -right-20 w-80 h-80 rounded-full opacity-[0.04]"
+            style={{
+              background: 'radial-gradient(circle, #000 0%, transparent 70%)',
+              animation: 'breathe 8s ease-in-out infinite'
+            }}
+          />
+          <div
+            className="absolute -bottom-32 -left-32 w-96 h-96 rounded-full opacity-[0.03]"
+            style={{
+              background: 'radial-gradient(circle, #000 0%, transparent 70%)',
+              animation: 'breathe 10s ease-in-out infinite 2s'
+            }}
+          />
         </div>
 
         {/* Main Content */}
-        <div className="relative max-w-3xl mx-auto">
-          {/* Main Title - Pixel Style */}
+        <div className="relative max-w-2xl mx-auto">
+          {/* Badge */}
           <div
-            className="text-center mb-10"
+            className="flex justify-center mb-8"
             style={{ animation: 'fadeInUp 0.6s ease-out' }}
           >
-            <h1
-              className="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 leading-tight mb-4"
-              style={{
-                fontFamily: '"Press Start 2P", monospace',
-                textShadow: '3px 3px 0 #e5e5e5',
-                letterSpacing: '2px'
-              }}
-            >
+            <span className="inline-flex items-center gap-2 px-4 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-medium text-gray-600 shadow-sm">
+              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+              AI 创作平台
+            </span>
+          </div>
+
+          {/* Main Title */}
+          <div
+            className="text-center mb-10"
+            style={{ animation: 'fadeInUp 0.6s ease-out 0.1s both' }}
+          >
+            <h1 className="text-4xl md:text-5xl lg:text-6xl font-semibold text-gray-900 leading-[1.15] tracking-tight">
               每个脑洞
               <br />
-              <span className="text-[#4ECDC4]">都值得</span>被画出来
+              <span className="text-gray-400">都值得被画出来</span>
             </h1>
 
-            <p className="text-base text-gray-500 max-w-xl mx-auto mt-6" style={{ fontFamily: 'monospace' }}>
-              [ AI 生图 ] + [ 智能编辑 ] + [ 分镜创作 ]
+            <p className="text-lg text-gray-500 max-w-md mx-auto mt-6 leading-relaxed">
+              AI 生图 · 智能编辑 · 分镜创作
             </p>
           </div>
 
-          {/* Chat Input Box - Pixel Style */}
+          {/* Chat Input Box - Premium Style */}
           <div
             className="relative"
-            style={{ animation: 'fadeInUp 0.6s ease-out 0.1s both' }}
+            style={{ animation: 'fadeInUp 0.6s ease-out 0.2s both' }}
           >
-            <div
-              className="bg-white p-4 border-4 border-gray-900"
-              style={{
-                boxShadow: '6px 6px 0 #e5e5e5',
-              }}
-            >
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-lg shadow-gray-200/50 p-5 transition-shadow hover:shadow-xl hover:shadow-gray-200/60">
               <textarea
                 value={promptInput}
                 onChange={(e) => setPromptInput(e.target.value)}
@@ -272,58 +258,63 @@ export function HomePage(_props: HomePageProps) {
                     handlePromptSubmit();
                   }
                 }}
-                placeholder="► 描述你想要的画面..."
-                className="w-full bg-transparent text-gray-900 placeholder-gray-400 text-base resize-none outline-none min-h-[80px] max-h-[200px]"
-                style={{ fontFamily: 'monospace' }}
+                placeholder="描述你想要创作的画面..."
+                className="w-full bg-transparent text-gray-900 placeholder-gray-400 text-base resize-none outline-none min-h-[80px] max-h-[200px] leading-relaxed"
                 rows={2}
               />
 
-              {/* Submit Button - Pixel Style */}
-              <div className="flex justify-end mt-2">
+              {/* Bottom Bar */}
+              <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
+                <div className="flex items-center gap-1 text-xs text-gray-400">
+                  <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] font-medium">Enter</kbd>
+                  <span>发送</span>
+                </div>
                 <button
                   onClick={() => handlePromptSubmit()}
                   disabled={!promptInput.trim()}
-                  className={`px-4 py-2 border-3 font-bold text-sm transition-all ${
+                  className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
                     promptInput.trim()
-                      ? 'bg-[#4ECDC4] border-gray-900 text-gray-900 hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none cursor-pointer'
-                      : 'bg-gray-200 border-gray-400 text-gray-400 cursor-not-allowed'
+                      ? 'bg-gray-900 text-white hover:bg-gray-800 shadow-md hover:shadow-lg cursor-pointer'
+                      : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                   }`}
-                  style={{
-                    boxShadow: promptInput.trim() ? '4px 4px 0 #1a1a1a' : 'none',
-                    fontFamily: 'monospace'
-                  }}
                 >
-                  生成 ▶
+                  <Sparkles size={16} />
+                  生成
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Quick Action Chips - Pixel Style */}
+          {/* Quick Actions */}
           <div
             className="flex flex-wrap items-center justify-center gap-3 mt-8"
-            style={{ animation: 'fadeInUp 0.6s ease-out 0.2s both' }}
+            style={{ animation: 'fadeInUp 0.6s ease-out 0.3s both' }}
           >
             <button
               onClick={() => handlePromptSubmit('一只可爱的柴犬在樱花树下')}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-[#FF6B6B] text-white border-2 border-gray-900 text-sm font-bold hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all"
-              style={{ boxShadow: '3px 3px 0 #1a1a1a', fontFamily: 'monospace' }}
+              className="group inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 hover:border-gray-300 hover:shadow-md transition-all duration-200"
             >
-              ✦ AI 生图
+              <Wand2 size={16} className="text-violet-500" />
+              AI 生图
             </button>
             <button
               onClick={() => handleCreateProject()}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-[#FFE66D] text-gray-900 border-2 border-gray-900 text-sm font-bold hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all"
-              style={{ boxShadow: '3px 3px 0 #1a1a1a', fontFamily: 'monospace' }}
+              className="group inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 hover:border-gray-300 hover:shadow-md transition-all duration-200"
             >
-              ✎ 图片编辑
+              <Palette size={16} className="text-amber-500" />
+              图片编辑
             </button>
             <button
               onClick={() => handleCreateProject()}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-[#DDA0DD] text-white border-2 border-gray-900 text-sm font-bold hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all"
-              style={{ boxShadow: '3px 3px 0 #1a1a1a', fontFamily: 'monospace' }}
+              className="group inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 hover:border-gray-300 hover:shadow-md transition-all duration-200"
             >
-              ▤ 分镜脚本
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-rose-500">
+                <rect x="3" y="3" width="7" height="9" rx="1" />
+                <rect x="14" y="3" width="7" height="9" rx="1" />
+                <rect x="3" y="15" width="7" height="6" rx="1" />
+                <rect x="14" y="15" width="7" height="6" rx="1" />
+              </svg>
+              分镜脚本
             </button>
           </div>
         </div>
@@ -333,24 +324,16 @@ export function HomePage(_props: HomePageProps) {
           @keyframes fadeInUp {
             from {
               opacity: 0;
-              transform: translateY(16px);
+              transform: translateY(20px);
             }
             to {
               opacity: 1;
               transform: translateY(0);
             }
           }
-          @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-          }
-          @keyframes float {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-8px); }
-          }
-          @keyframes pulse {
-            0%, 100% { opacity: 0.5; transform: scale(1); }
-            50% { opacity: 0.8; transform: scale(1.1); }
+          @keyframes breathe {
+            0%, 100% { transform: scale(1); opacity: 0.04; }
+            50% { transform: scale(1.05); opacity: 0.06; }
           }
         `}</style>
       </div>
