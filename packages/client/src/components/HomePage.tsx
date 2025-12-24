@@ -188,18 +188,41 @@ export function HomePage(_props: HomePageProps) {
       </header>
 
       {/* Hero Section - Chat Input Style */}
-      <div className="relative pt-16 pb-12 px-6 bg-white">
+      <div className="relative pt-16 pb-12 px-6 bg-gradient-to-b from-[#FFF9F5] to-white">
+        {/* Google Font */}
+        <link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap" rel="stylesheet" />
+
         {/* Main Content */}
         <div className="relative max-w-3xl mx-auto">
           {/* Main Title */}
-          <h1
+          <div
             className="text-center mb-10"
             style={{ animation: 'fadeInUp 0.6s ease-out' }}
           >
-            <span className="block text-4xl md:text-5xl font-semibold text-gray-900 tracking-tight">
-              想画点什么？
-            </span>
-          </h1>
+            {/* Decorative badge */}
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-white rounded-full shadow-sm border border-gray-100 mb-6">
+              <span className="w-2 h-2 rounded-full bg-[#FFB5BA] animate-pulse" />
+              <span className="text-sm text-gray-600">AI 创意画布</span>
+            </div>
+
+            <h1
+              className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight leading-tight"
+              style={{ fontFamily: '"ZCOOL KuaiLe", cursive' }}
+            >
+              <span className="text-[#FFB5BA]">说出</span>
+              <span className="text-[#B5DEFF]">你的</span>
+              <span className="text-[#BFFCC6]">想象</span>
+              <span className="text-gray-800">，</span>
+              <br className="hidden sm:block" />
+              <span className="text-[#FFC9DE]">AI </span>
+              <span className="text-[#C4FAF8]">帮你</span>
+              <span className="text-[#E7CFFF]">画出来</span>
+            </h1>
+
+            <p className="mt-4 text-gray-500 text-lg">
+              输入描述 → 生成图片 → 自由编辑 → 导出分享
+            </p>
+          </div>
 
           {/* Chat Input Box */}
           <div
@@ -238,36 +261,37 @@ export function HomePage(_props: HomePageProps) {
             </div>
           </div>
 
-          {/* Quick Action Chips */}
+          {/* Quick Action Chips - Macaron Colors */}
           <div
             className="flex flex-wrap items-center justify-center gap-2 mt-6"
             style={{ animation: 'fadeInUp 0.6s ease-out 0.2s both' }}
           >
             <button
               onClick={() => handlePromptSubmit('一只可爱的柴犬在樱花树下')}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-full text-sm text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-[#FFB5BA]/10 border border-[#FFB5BA]/30 rounded-full text-sm text-[#E8878C] hover:bg-[#FFB5BA]/20 hover:border-[#FFB5BA]/50 transition-colors"
             >
-              <Sparkles size={16} className="text-amber-500" />
+              <Sparkles size={16} />
               生成插画
             </button>
             <button
               onClick={() => handlePromptSubmit('赛博朋克风格的未来城市夜景')}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-full text-sm text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-[#B5DEFF]/10 border border-[#B5DEFF]/30 rounded-full text-sm text-[#6BA3D6] hover:bg-[#B5DEFF]/20 hover:border-[#B5DEFF]/50 transition-colors"
             >
-              <Palette size={16} className="text-violet-500" />
+              <Palette size={16} />
               艺术创作
             </button>
             <button
               onClick={() => handlePromptSubmit('简约现代的品牌 logo 设计')}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-full text-sm text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-[#E7CFFF]/10 border border-[#E7CFFF]/30 rounded-full text-sm text-[#A67DD6] hover:bg-[#E7CFFF]/20 hover:border-[#E7CFFF]/50 transition-colors"
             >
-              <Wand2 size={16} className="text-blue-500" />
+              <Wand2 size={16} />
               设计灵感
             </button>
             <button
               onClick={() => handleCreateProject()}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-full text-sm text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-[#BFFCC6]/10 border border-[#BFFCC6]/30 rounded-full text-sm text-[#5DB56A] hover:bg-[#BFFCC6]/20 hover:border-[#BFFCC6]/50 transition-colors"
             >
+              <Plus size={16} />
               空白画布
             </button>
           </div>
