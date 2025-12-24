@@ -152,211 +152,153 @@ export function HomePage(_props: HomePageProps) {
               )}
             </div>
           ) : (
-            <button
-              onClick={() => setShowLoginModal(true)}
-              className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              登录
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowLoginModal(true)}
+                className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                登录
+              </button>
+              <button
+                onClick={() => setShowLoginModal(true)}
+                className="px-4 py-2 text-sm font-medium text-white bg-gray-900 hover:bg-gray-800 rounded-lg transition-colors"
+              >
+                注册
+              </button>
+            </div>
           )}
         </div>
       </header>
 
-      {/* Hero Section - Geometric Editorial Style */}
-      <div className="relative pt-20 pb-16 px-6 overflow-hidden bg-white">
-        {/* Animated Geometric Elements */}
+      {/* Hero Section - With Color Accents */}
+      <div className="relative pt-24 pb-20 px-6 overflow-hidden bg-[#fafafa]">
+        {/* Subtle Grid Background */}
+        <div
+          className="absolute inset-0 opacity-[0.35]"
+          style={{
+            backgroundImage: `
+              linear-gradient(to right, #e5e5e5 1px, transparent 1px),
+              linear-gradient(to bottom, #e5e5e5 1px, transparent 1px)
+            `,
+            backgroundSize: '48px 48px',
+          }}
+        />
+
+        {/* Colored Accent Shapes */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          {/* Large hollow circle - top right */}
+          {/* Orange circle - top left */}
           <div
-            className="absolute -top-20 -right-20 w-80 h-80 border-[3px] border-gray-900 rounded-full opacity-[0.08]"
-            style={{ animation: 'spin 60s linear infinite' }}
+            className="absolute -top-10 -left-10 w-40 h-40 bg-orange-400/20 rounded-full blur-2xl"
+            style={{ animation: 'pulse 4s ease-in-out infinite' }}
           />
-
-          {/* Solid black circle - left side */}
+          {/* Blue circle - right */}
           <div
-            className="absolute top-1/3 left-[8%] w-4 h-4 bg-gray-900 rounded-full"
-            style={{ animation: 'float 4s ease-in-out infinite' }}
+            className="absolute top-1/3 -right-10 w-32 h-32 bg-blue-400/20 rounded-full blur-2xl"
+            style={{ animation: 'pulse 5s ease-in-out infinite 1s' }}
           />
+          {/* Small solid accent dots */}
+          <div className="absolute top-[20%] left-[15%] w-2 h-2 bg-orange-400 rounded-full opacity-60" />
+          <div className="absolute top-[30%] right-[20%] w-1.5 h-1.5 bg-blue-500 rounded-full opacity-50" />
+          <div className="absolute bottom-[25%] left-[25%] w-1.5 h-1.5 bg-emerald-500 rounded-full opacity-50" />
+        </div>
 
-          {/* Small hollow circle */}
+        {/* Center Circle */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div
-            className="absolute top-[20%] right-[15%] w-6 h-6 border-2 border-gray-900 rounded-full opacity-40"
-            style={{ animation: 'float 5s ease-in-out infinite 0.5s' }}
-          />
-
-          {/* Horizontal line - accent */}
-          <div
-            className="absolute top-[45%] left-[5%] w-24 h-[2px] bg-gray-900 opacity-20"
-            style={{ animation: 'slideIn 1s ease-out' }}
-          />
-
-          {/* Cross element */}
-          <div className="absolute bottom-[30%] right-[10%] opacity-30">
-            <div className="w-8 h-[2px] bg-gray-900" style={{ animation: 'fadeIn 1s ease-out 0.3s both' }} />
-            <div className="w-[2px] h-8 bg-gray-900 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" style={{ animation: 'fadeIn 1s ease-out 0.5s both' }} />
-          </div>
-
-          {/* Dotted square pattern */}
-          <div
-            className="absolute bottom-[20%] left-[12%] grid grid-cols-3 gap-2 opacity-20"
-            style={{ animation: 'fadeIn 1s ease-out 0.7s both' }}
-          >
-            {[...Array(9)].map((_, i) => (
-              <div key={i} className="w-1.5 h-1.5 bg-gray-900 rounded-full" />
-            ))}
-          </div>
-
-          {/* Diagonal line */}
-          <div
-            className="absolute top-[60%] right-[25%] w-16 h-[2px] bg-gray-900 opacity-15 rotate-45"
-            style={{ animation: 'slideIn 1s ease-out 0.4s both' }}
+            className="w-[450px] h-[450px] border border-gray-200 rounded-full opacity-50"
+            style={{ animation: 'scaleIn 1.2s ease-out' }}
           />
         </div>
 
         {/* Main Content */}
-        <div className="relative max-w-4xl mx-auto">
-          {/* Eyebrow text */}
-          <div
-            className="flex items-center justify-center gap-3 mb-6"
-            style={{ animation: 'fadeInUp 0.8s ease-out' }}
-          >
-            <div className="w-8 h-[1px] bg-gray-400" />
-            <span className="text-xs font-medium tracking-[0.3em] text-gray-500 uppercase">Canvas Studio</span>
-            <div className="w-8 h-[1px] bg-gray-400" />
-          </div>
-
-          {/* Main Title - Bold Typography */}
-          <h1
-            className="text-center mb-6"
-            style={{ animation: 'fadeInUp 0.8s ease-out 0.1s both' }}
-          >
-            <span className="block text-5xl md:text-6xl lg:text-7xl font-bold text-gray-900 tracking-tight leading-[1.1]">
-              用 AI 画出
-            </span>
-            <span className="block text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.1] mt-1">
-              <span className="text-gray-900">你的</span>
-              <span className="relative inline-block ml-2">
-                <span className="text-gray-900">想法</span>
-                {/* Underline decoration */}
-                <svg
-                  className="absolute -bottom-2 left-0 w-full"
-                  height="8"
-                  viewBox="0 0 100 8"
-                  preserveAspectRatio="none"
-                  style={{ animation: 'drawLine 0.6s ease-out 0.8s both' }}
-                >
-                  <path
-                    d="M0 4 Q25 0, 50 4 T100 4"
-                    stroke="currentColor"
-                    strokeWidth="3"
-                    fill="none"
-                    className="text-gray-900"
-                  />
-                </svg>
-              </span>
+        <div className="relative max-w-3xl mx-auto text-center">
+          {/* Main Title */}
+          <h1 style={{ animation: 'fadeInUp 0.8s ease-out' }}>
+            <span className="block text-5xl md:text-6xl font-semibold text-gray-900 tracking-tight leading-tight">
+              用 AI 画出你的<span className="text-orange-500">想法</span>
             </span>
           </h1>
 
           {/* Subtitle */}
           <p
-            className="text-center text-lg md:text-xl text-gray-500 font-normal max-w-xl mx-auto leading-relaxed"
-            style={{ animation: 'fadeInUp 0.8s ease-out 0.2s both' }}
+            className="mt-5 text-lg text-gray-500 font-normal"
+            style={{ animation: 'fadeInUp 0.8s ease-out 0.15s both' }}
           >
             输入描述，一键生成图片，自由编辑
           </p>
 
-          {/* Decorative element below subtitle */}
+          {/* CTA Button */}
           <div
-            className="flex items-center justify-center gap-2 mt-8"
+            className="mt-10"
             style={{ animation: 'fadeInUp 0.8s ease-out 0.3s both' }}
           >
-            <div className="w-2 h-2 bg-gray-900 rounded-full" />
-            <div className="w-2 h-2 bg-gray-400 rounded-full" />
-            <div className="w-2 h-2 bg-gray-300 rounded-full" />
+            <button
+              onClick={handleCreateProject}
+              className="inline-flex items-center gap-2 px-8 py-3.5 bg-orange-500 hover:bg-orange-600 text-white rounded-full font-medium transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-orange-500/25"
+            >
+              <Plus size={20} />
+              <span>开始创作</span>
+            </button>
           </div>
         </div>
 
         {/* CSS Animations */}
         <style>{`
-          @keyframes float {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-10px); }
-          }
-          @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-          }
           @keyframes fadeInUp {
             from {
               opacity: 0;
-              transform: translateY(20px);
+              transform: translateY(16px);
             }
             to {
               opacity: 1;
               transform: translateY(0);
             }
           }
-          @keyframes slideIn {
+          @keyframes scaleIn {
             from {
               opacity: 0;
-              transform: translateX(-20px);
+              transform: scale(0.9);
             }
             to {
-              opacity: 1;
-              transform: translateX(0);
+              opacity: 0.5;
+              transform: scale(1);
             }
           }
-          @keyframes drawLine {
-            from {
-              stroke-dasharray: 200;
-              stroke-dashoffset: 200;
-            }
-            to {
-              stroke-dasharray: 200;
-              stroke-dashoffset: 0;
-            }
-          }
-          @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
+          @keyframes pulse {
+            0%, 100% { opacity: 0.2; transform: scale(1); }
+            50% { opacity: 0.3; transform: scale(1.05); }
           }
         `}</style>
       </div>
 
-      {/* Action Bar */}
-      <div className="max-w-7xl mx-auto px-6 py-6 flex items-center justify-between">
-        <button
-          onClick={handleCreateProject}
-          className="flex items-center gap-2 px-5 py-2.5 bg-violet-500 hover:bg-violet-600 text-white rounded-lg font-medium transition-colors shadow-sm"
-        >
-          <Plus size={20} />
-          <span>新建项目</span>
-        </button>
+      {/* Projects Section Header */}
+      <div className="max-w-7xl mx-auto px-6 pt-8 pb-4 flex items-center justify-between">
+        <h2 className="text-lg font-medium text-gray-900">我的项目</h2>
 
         <div className="relative">
           <button
             onClick={() => setShowSortMenu(!showSortMenu)}
-            className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
           >
-            <span className="text-gray-700">{sortBy === 'recent' ? '最近' : '名称'}</span>
-            <ChevronDown size={18} className="text-gray-500" />
+            <span>{sortBy === 'recent' ? '最近编辑' : '按名称'}</span>
+            <ChevronDown size={16} />
           </button>
 
           {showSortMenu && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setShowSortMenu(false)} />
-              <div className="absolute right-0 top-full mt-1 w-32 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20">
+              <div className="absolute right-0 top-full mt-1 w-32 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-20">
                 <button
                   onClick={() => { setSortBy('recent'); setShowSortMenu(false); }}
-                  className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-50 ${sortBy === 'recent' ? 'text-violet-600 bg-violet-50' : 'text-gray-700'}`}
+                  className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-50 ${sortBy === 'recent' ? 'text-gray-900 font-medium' : 'text-gray-600'}`}
                 >
-                  最近
+                  最近编辑
                 </button>
                 <button
                   onClick={() => { setSortBy('name'); setShowSortMenu(false); }}
-                  className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-50 ${sortBy === 'name' ? 'text-violet-600 bg-violet-50' : 'text-gray-700'}`}
+                  className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-50 ${sortBy === 'name' ? 'text-gray-900 font-medium' : 'text-gray-600'}`}
                 >
-                  名称
+                  按名称
                 </button>
               </div>
             </>
