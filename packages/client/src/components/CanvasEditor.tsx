@@ -104,29 +104,6 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
 
   // Chatbot 状态
   const [isChatOpen, setIsChatOpen] = useState(false);
-  const [tauntMessage, setTauntMessage] = useState('');
-  const [isWiggling, setIsWiggling] = useState(false);
-  const chatBtnRef = useRef<HTMLDivElement>(null);
-  const chatBtnDragRef = useRef({ isDragging: false, startX: 0, startY: 0, moved: false });
-
-  // 嘲讽语录
-  const tauntMessages = [
-    '写不出来吧？😏',
-    '就这？就这？',
-    '我都替你尴尬...',
-    '要不要我帮你？🙄',
-    '又在摸鱼？',
-    '灵感枯竭了吗~',
-    '我看你很久了👀',
-    '点我啊，不敢吗',
-    '哎，又发呆...',
-    '今天也没产出呢',
-    '要不...放弃算了？',
-    '我等得花都谢了🌸',
-    '你行不行啊',
-    '需要我教你吗？',
-    '啧啧啧...',
-  ];
 
   // 剧本模式状态
   const [showStoryboard, setShowStoryboard] = useState(false);
@@ -247,100 +224,6 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
       nameInputRef.current.select();
     }
   }, [isEditingName]);
-
-  // 随机嘲讽定时器
-  useEffect(() => {
-    if (isChatOpen) return;
-
-    const triggerTaunt = () => {
-      const randomMsg = tauntMessages[Math.floor(Math.random() * tauntMessages.length)];
-      setTauntMessage(randomMsg);
-      setIsWiggling(true);
-
-      // 3秒后隐藏消息
-      setTimeout(() => {
-        setTauntMessage('');
-        setIsWiggling(false);
-      }, 3000);
-    };
-
-    // 首次延迟5秒后开始
-    const initialDelay = setTimeout(() => {
-      triggerTaunt();
-    }, 5000);
-
-    // 之后每15-30秒随机触发
-    const interval = setInterval(() => {
-      if (Math.random() > 0.5) {
-        triggerTaunt();
-      }
-    }, 15000);
-
-    return () => {
-      clearTimeout(initialDelay);
-      clearInterval(interval);
-    };
-  }, [isChatOpen]);
-
-  // Chatbot 按钮拖拽 - 使用原生事件直接操作 DOM
-  useEffect(() => {
-    const btn = chatBtnRef.current;
-    if (!btn) return;
-
-    const handleMouseDown = (e: MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const rect = btn.getBoundingClientRect();
-      chatBtnDragRef.current = {
-        isDragging: true,
-        startX: e.clientX - rect.left,
-        startY: e.clientY - rect.top,
-        moved: false,
-      };
-      btn.style.cursor = 'grabbing';
-    };
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!chatBtnDragRef.current.isDragging) return;
-      e.preventDefault();
-      const newX = e.clientX - chatBtnDragRef.current.startX;
-      const newY = e.clientY - chatBtnDragRef.current.startY;
-      btn.style.left = `${newX}px`;
-      btn.style.top = `${newY}px`;
-      chatBtnDragRef.current.moved = true;
-    };
-
-    const handleMouseUp = () => {
-      if (!chatBtnDragRef.current.isDragging) return;
-      chatBtnDragRef.current.isDragging = false;
-      btn.style.cursor = 'grab';
-      // 延迟重置 moved，防止触发 click
-      setTimeout(() => {
-        chatBtnDragRef.current.moved = false;
-      }, 50);
-    };
-
-    const handleClick = (e: MouseEvent) => {
-      if (chatBtnDragRef.current.moved) {
-        e.preventDefault();
-        e.stopPropagation();
-        return;
-      }
-      setIsChatOpen(true);
-    };
-
-    btn.addEventListener('mousedown', handleMouseDown);
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    btn.addEventListener('click', handleClick);
-
-    return () => {
-      btn.removeEventListener('mousedown', handleMouseDown);
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      btn.removeEventListener('click', handleClick);
-    };
-  }, []);
 
   // 阻止浏览器默认的双指缩放行为
   useEffect(() => {
@@ -1341,6 +1224,16 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
             <ScrollText size={20} />
           </button>
         </Tooltip>
+
+        {/* AI 助手 */}
+        <Tooltip content="AI 助手" side="right">
+          <button
+            className={`relative p-2 rounded-full transition-all duration-200 ease-out ${isChatOpen ? 'bg-violet-100 scale-105' : 'hover:bg-gray-200/50 hover:scale-105'}`}
+            onClick={() => setIsChatOpen(!isChatOpen)}
+          >
+            <Logo size={28} showText={false} />
+          </button>
+        </Tooltip>
       </div>
 
       {/* --- Main Canvas --- */}
@@ -2061,44 +1954,6 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
           }}
         />
       )}
-
-      {/* Chatbot 触发按钮 - 欠揍的小表情 */}
-      <div
-        ref={chatBtnRef}
-        className={`fixed z-40 ${isChatOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
-        style={{
-          left: window.innerWidth - 80,
-          top: window.innerHeight / 2,
-          cursor: 'grab',
-        }}
-        title="拖拽移动 / 点击打开"
-      >
-        {/* 嘲讽气泡 */}
-        {tauntMessage && (
-          <div className="absolute bottom-full right-0 mb-3 px-3 py-2 bg-white rounded-2xl shadow-lg text-sm text-gray-600 whitespace-nowrap border border-gray-100">
-            {tauntMessage}
-            <div className="absolute -bottom-2 right-5 w-3 h-3 bg-white border-r border-b border-gray-100 transform rotate-45" />
-          </div>
-        )}
-
-        {/* AI 助手按钮 */}
-        <div
-          className="relative select-none hover:scale-110 active:scale-95 transition-all duration-200 drop-shadow-lg"
-          style={{
-            animation: isWiggling ? 'wiggle 0.2s ease-in-out infinite' : undefined,
-          }}
-        >
-          <Logo size={52} showText={false} />
-        </div>
-      </div>
-
-      {/* Wiggle 动画样式 */}
-      <style>{`
-        @keyframes wiggle {
-          0%, 100% { transform: rotate(-6deg); }
-          50% { transform: rotate(6deg); }
-        }
-      `}</style>
 
       {/* Chatbot 面板 */}
       <ChatbotPanel
