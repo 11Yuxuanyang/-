@@ -1229,17 +1229,6 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         </div>
 
         <div className="flex items-center gap-3 pointer-events-auto">
-          {/* 剧本模式 */}
-          <button
-            className={`flex items-center gap-2 px-4 py-2 shadow-sm rounded-lg transition-all text-sm font-medium ${showStoryboard
-              ? 'bg-violet-500 text-white'
-              : 'bg-white border border-violet-200 text-violet-600 hover:bg-violet-50'
-              }`}
-            onClick={() => setShowStoryboard(!showStoryboard)}
-          >
-            <ScrollText size={16} />
-            剧本模式
-          </button>
           <button className="flex items-center gap-2 px-4 py-2 bg-violet-500 shadow-sm rounded-lg hover:bg-violet-600 transition-all text-sm font-medium text-white">
             <Share2 size={16} />
             分享
@@ -1339,6 +1328,19 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
             </div>
           )}
         </div>
+
+        {/* 分隔线 */}
+        <div className="w-6 h-px bg-gray-300 my-1" />
+
+        {/* 剧本模式 */}
+        <Tooltip content="剧本模式" side="right">
+          <button
+            className={`relative p-3 rounded-full transition-all duration-200 ease-out ${showStoryboard ? 'bg-violet-500 text-white shadow-md scale-105' : 'text-gray-500 hover:bg-gray-200/50 hover:scale-105'}`}
+            onClick={() => setShowStoryboard(!showStoryboard)}
+          >
+            <ScrollText size={20} />
+          </button>
+        </Tooltip>
       </div>
 
       {/* --- Main Canvas --- */}
