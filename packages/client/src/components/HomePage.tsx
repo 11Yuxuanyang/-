@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MoreVertical, ChevronDown, Trash2, Copy, Edit3, LogOut, ArrowUp, Sparkles, Palette, Wand2, Plus } from 'lucide-react';
+import { MoreVertical, ChevronDown, Trash2, Copy, Edit3, LogOut, ArrowUp, Plus } from 'lucide-react';
 import { Project } from '../types';
 import * as ProjectService from '../services/projectService';
 import { LoginModal } from './LoginModal';
@@ -187,68 +187,39 @@ export function HomePage(_props: HomePageProps) {
         </div>
       </header>
 
-      {/* Hero Section - Premium Minimal */}
-      <div className="relative pt-20 pb-16 px-6 bg-[#fafafa] overflow-hidden">
-        {/* Subtle Background Pattern */}
-        <div className="absolute inset-0 pointer-events-none">
-          <div
-            className="absolute inset-0 opacity-[0.03]"
-            style={{
-              backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23000000' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-            }}
-          />
-          {/* Decorative circles */}
-          <div
-            className="absolute -top-20 -right-20 w-80 h-80 rounded-full opacity-[0.04]"
-            style={{
-              background: 'radial-gradient(circle, #000 0%, transparent 70%)',
-              animation: 'breathe 8s ease-in-out infinite'
-            }}
-          />
-          <div
-            className="absolute -bottom-32 -left-32 w-96 h-96 rounded-full opacity-[0.03]"
-            style={{
-              background: 'radial-gradient(circle, #000 0%, transparent 70%)',
-              animation: 'breathe 10s ease-in-out infinite 2s'
-            }}
-          />
-        </div>
-
+      {/* Hero Section - Clean Professional Style */}
+      <div className="relative pt-16 pb-12 px-6 bg-[#f5f5f5]">
         {/* Main Content */}
-        <div className="relative max-w-2xl mx-auto">
-          {/* Badge */}
-          <div
-            className="flex justify-center mb-8"
-            style={{ animation: 'fadeInUp 0.6s ease-out' }}
-          >
-            <span className="inline-flex items-center gap-2 px-4 py-1.5 bg-white border border-gray-200 rounded-full text-xs font-medium text-gray-600 shadow-sm">
-              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-              AI 创作平台
-            </span>
-          </div>
-
+        <div className="relative max-w-3xl mx-auto">
           {/* Main Title */}
           <div
-            className="text-center mb-10"
-            style={{ animation: 'fadeInUp 0.6s ease-out 0.1s both' }}
+            className="text-center mb-5"
+            style={{ animation: 'fadeInUp 0.5s ease-out' }}
           >
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-semibold text-gray-900 leading-[1.15] tracking-tight">
-              每个脑洞
-              <br />
-              <span className="text-gray-400">都值得被画出来</span>
+            <h1 className="text-3xl md:text-4xl lg:text-[46px] font-bold text-gray-900 leading-[1.2] tracking-tight">
+              好想法不该只存在脑海里
             </h1>
-
-            <p className="text-lg text-gray-500 max-w-md mx-auto mt-6 leading-relaxed">
-              AI 生图 · 智能编辑 · 分镜创作
+            <p className="mt-3 text-xl md:text-2xl text-gray-900/80 font-medium">
+              现在，<span className="text-[#6366f1]">一句话</span>就能变成<span className="text-[#6366f1]">一幅画</span>
             </p>
           </div>
 
-          {/* Chat Input Box - Premium Style */}
+          {/* Subtitle */}
+          <div
+            className="text-center mb-8"
+            style={{ animation: 'fadeInUp 0.5s ease-out 0.05s both' }}
+          >
+            <p className="text-base text-gray-400 max-w-lg mx-auto">
+              无需绘画基础，输入你的想法，AI 秒级生成专业画面。支持智能编辑和分镜创作。
+            </p>
+          </div>
+
+          {/* Chat Input Box - White Card Style */}
           <div
             className="relative"
-            style={{ animation: 'fadeInUp 0.6s ease-out 0.2s both' }}
+            style={{ animation: 'fadeInUp 0.5s ease-out 0.1s both' }}
           >
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-lg shadow-gray-200/50 p-5 transition-shadow hover:shadow-xl hover:shadow-gray-200/60">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200/60 p-4">
               <textarea
                 value={promptInput}
                 onChange={(e) => setPromptInput(e.target.value)}
@@ -258,55 +229,65 @@ export function HomePage(_props: HomePageProps) {
                     handlePromptSubmit();
                   }
                 }}
-                placeholder="描述你想要创作的画面..."
-                className="w-full bg-transparent text-gray-900 placeholder-gray-400 text-base resize-none outline-none min-h-[80px] max-h-[200px] leading-relaxed"
-                rows={2}
+                placeholder="描述你想要的画面..."
+                className="w-full bg-transparent text-gray-900 placeholder-gray-400 text-base resize-none outline-none min-h-[28px] max-h-[200px] leading-relaxed"
+                rows={1}
+                style={{
+                  height: 'auto',
+                  overflow: 'hidden'
+                }}
+                onInput={(e) => {
+                  const target = e.target as HTMLTextAreaElement;
+                  target.style.height = 'auto';
+                  target.style.height = Math.min(target.scrollHeight, 200) + 'px';
+                }}
               />
 
               {/* Bottom Bar */}
-              <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
-                <div className="flex items-center gap-1 text-xs text-gray-400">
-                  <kbd className="px-1.5 py-0.5 bg-gray-100 rounded text-[10px] font-medium">Enter</kbd>
-                  <span>发送</span>
-                </div>
+              <div className="flex items-center justify-end mt-4 pt-2">
                 <button
                   onClick={() => handlePromptSubmit()}
                   disabled={!promptInput.trim()}
-                  className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
+                  className={`flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 ${
                     promptInput.trim()
-                      ? 'bg-gray-900 text-white hover:bg-gray-800 shadow-md hover:shadow-lg cursor-pointer'
-                      : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      ? 'bg-gray-900 text-white hover:bg-gray-700 cursor-pointer'
+                      : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                   }`}
                 >
-                  <Sparkles size={16} />
-                  生成
+                  <ArrowUp size={18} strokeWidth={2.5} />
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Quick Actions */}
+          {/* Quick Actions - Clean Pill Style */}
           <div
-            className="flex flex-wrap items-center justify-center gap-3 mt-8"
-            style={{ animation: 'fadeInUp 0.6s ease-out 0.3s both' }}
+            className="flex flex-wrap items-center justify-center gap-2 mt-6"
+            style={{ animation: 'fadeInUp 0.5s ease-out 0.2s both' }}
           >
             <button
               onClick={() => handlePromptSubmit('一只可爱的柴犬在樱花树下')}
-              className="group inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 hover:border-gray-300 hover:shadow-md transition-all duration-200"
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-full text-sm text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all duration-200"
             >
-              <Wand2 size={16} className="text-violet-500" />
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-violet-500">
+                <path d="M12 3l1.912 5.813a2 2 0 001.272 1.272L21 12l-5.813 1.912a2 2 0 00-1.272 1.272L12 21l-1.912-5.813a2 2 0 00-1.272-1.272L3 12l5.813-1.912a2 2 0 001.272-1.272L12 3z" />
+              </svg>
               AI 生图
             </button>
             <button
               onClick={() => handleCreateProject()}
-              className="group inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 hover:border-gray-300 hover:shadow-md transition-all duration-200"
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-full text-sm text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all duration-200"
             >
-              <Palette size={16} className="text-amber-500" />
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-500">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <path d="M21 15l-5-5L5 21" />
+              </svg>
               图片编辑
             </button>
             <button
               onClick={() => handleCreateProject()}
-              className="group inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 hover:border-gray-300 hover:shadow-md transition-all duration-200"
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-full text-sm text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all duration-200"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-rose-500">
                 <rect x="3" y="3" width="7" height="9" rx="1" />
@@ -324,16 +305,12 @@ export function HomePage(_props: HomePageProps) {
           @keyframes fadeInUp {
             from {
               opacity: 0;
-              transform: translateY(20px);
+              transform: translateY(16px);
             }
             to {
               opacity: 1;
               transform: translateY(0);
             }
-          }
-          @keyframes breathe {
-            0%, 100% { transform: scale(1); opacity: 0.04; }
-            50% { transform: scale(1.05); opacity: 0.06; }
           }
         `}</style>
       </div>
