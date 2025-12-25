@@ -42,11 +42,20 @@ export class DoubaoChatProvider implements ChatProvider {
     const result: DoubaoMessage[] = [];
 
     for (const msg of messages) {
+      // 获取文本内容
+      let textContent = '';
+      if (typeof msg.content === 'string') {
+        textContent = msg.content;
+      } else if (Array.isArray(msg.content)) {
+        const textPart = msg.content.find(p => p.type === 'text');
+        textContent = textPart && 'text' in textPart ? textPart.text : '';
+      }
+
       // 如果没有附件，直接使用字符串格式
       if (!msg.attachments || msg.attachments.length === 0) {
         result.push({
           role: msg.role,
-          content: msg.content,
+          content: textContent,
         });
         continue;
       }
@@ -83,16 +92,16 @@ export class DoubaoChatProvider implements ChatProvider {
       }
 
       // 添加文本内容
-      if (msg.content) {
+      if (textContent) {
         contentItems.push({
           type: 'text',
-          text: msg.content,
+          text: textContent,
         });
       }
 
       result.push({
         role: msg.role,
-        content: contentItems.length > 0 ? contentItems : msg.content,
+        content: contentItems.length > 0 ? contentItems : textContent,
       });
     }
 

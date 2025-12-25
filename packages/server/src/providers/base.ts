@@ -21,6 +21,14 @@ export interface EditImageParams {
   options?: Record<string, any>;
 }
 
+export interface InpaintImageParams {
+  image: string;   // 原始图片 (base64 或 URL)
+  mask: string;    // 遮罩图片 (base64)，白色区域表示要擦除/编辑的区域
+  prompt?: string; // 可选的提示词，描述用什么填充擦除区域（不填则智能填充）
+  model?: string;
+  options?: Record<string, any>;
+}
+
 export interface UpscaleImageParams {
   image: string;  // base64
   resolution?: '2K' | '4K';
@@ -42,6 +50,13 @@ export interface AIProvider {
    * @returns base64 编码的图片数据
    */
   editImage(params: EditImageParams): Promise<string>;
+
+  /**
+   * 图片修复/擦除（可选）
+   * 使用遮罩指定要擦除或编辑的区域
+   * @returns base64 编码的图片数据
+   */
+  inpaintImage?(params: InpaintImageParams): Promise<string>;
 
   /**
    * 放大图片（可选）

@@ -1,7 +1,7 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { X, Plus, History, Maximize2, Minimize2 } from 'lucide-react';
-import { ChatMessage, ChatAttachment } from '@/types';
-import { chatStream, ChatMessageInput } from '@/services/api';
+import { ChatMessage, ChatAttachment, CanvasItem } from '@/types';
+import { chatStream, ChatMessageInput, CanvasContext, CanvasItemContext } from '@/services/api';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { generateId } from '@/utils/id';
@@ -9,16 +9,66 @@ import { generateId } from '@/utils/id';
 interface ChatbotPanelProps {
   isOpen: boolean;
   onClose: () => void;
+  canvasItems?: CanvasItem[];
+  selectedIds?: string[];
+}
+
+/**
+ * 将画布元素转换为上下文格式
+ */
+function buildCanvasContext(items: CanvasItem[], selectedIds: string[]): CanvasContext {
+  const contextItems: CanvasItemContext[] = items.map((item) => {
+    const baseContext: CanvasItemContext = {
+      id: item.id,
+      type: item.type,
+      position: { x: item.x, y: item.y },
+      size: { width: item.width, height: item.height },
+    };
+
+    // 图片：包含 base64 数据和提示词
+    if (item.type === 'image') {
+      baseContext.imageData = item.src;
+      if (item.prompt) {
+        baseContext.prompt = item.prompt;
+      }
+    }
+
+    // 文字：包含文字内容
+    if (item.type === 'text') {
+      baseContext.textContent = item.src;
+    }
+
+    // 形状：包含填充和描边颜色
+    if (['rectangle', 'circle', 'line', 'arrow'].includes(item.type)) {
+      if (item.fill) baseContext.fill = item.fill;
+      if (item.stroke) baseContext.stroke = item.stroke;
+    }
+
+    return baseContext;
+  });
+
+  return {
+    items: contextItems,
+    selectedIds,
+  };
 }
 
 export const ChatbotPanel: React.FC<ChatbotPanelProps> = ({
   isOpen,
   onClose,
+  canvasItems = [],
+  selectedIds = [],
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
+
+  // 构建画布上下文
+  const canvasContext = useMemo(() => {
+    if (canvasItems.length === 0) return undefined;
+    return buildCanvasContext(canvasItems, selectedIds);
+  }, [canvasItems, selectedIds]);
 
   const handleSend = useCallback(async (content: string, attachments: ChatAttachment[]) => {
     if (isLoading) return;
@@ -71,6 +121,7 @@ export const ChatbotPanel: React.FC<ChatbotPanelProps> = ({
       for await (const chunk of chatStream({
         messages: messageHistory,
         webSearchEnabled,
+        canvasContext,
       })) {
         fullContent += chunk;
         setMessages((prev) =>
@@ -103,7 +154,7 @@ export const ChatbotPanel: React.FC<ChatbotPanelProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [messages, webSearchEnabled, isLoading]);
+  }, [messages, webSearchEnabled, isLoading, canvasContext]);
 
   const handleQuickPrompt = (prompt: string) => {
     handleSend(prompt, []);

@@ -27,19 +27,33 @@ aiRouter.get('/providers', (_req: Request, res: Response) => {
  * POST /api/ai/generate
  * 生成图片
  * 支持通过 provider 参数指定提供商
+ * 如果提供了 referenceImage，则使用图生图模式（AI 融合）
  */
 aiRouter.post(
   '/generate',
   validateBody(schemas.generateImage),
   asyncHandler(async (req: Request, res: Response) => {
-    const { prompt, model, aspectRatio, provider: providerName } = req.body;
+    const { prompt, model, aspectRatio, size, provider: providerName, referenceImage } = req.body;
 
     const provider = getProvider(providerName);
-    const image = await provider.generateImage({
-      prompt,
-      model,
-      aspectRatio,
-    });
+    let image: string;
+
+    if (referenceImage) {
+      // 有参考图时使用图生图模式（AI 融合）
+      image = await provider.editImage({
+        image: referenceImage,
+        prompt,
+        model,
+      });
+    } else {
+      // 无参考图时使用文生图模式
+      image = await provider.generateImage({
+        prompt,
+        model,
+        aspectRatio,
+        size,
+      });
+    }
 
     res.json({
       success: true,
@@ -65,6 +79,44 @@ aiRouter.post(
     const provider = getProvider(providerName);
     const resultImage = await provider.editImage({
       image,
+      prompt,
+      model,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        image: resultImage,
+        provider: provider.name,
+      },
+    });
+  })
+);
+
+/**
+ * POST /api/ai/inpaint
+ * 图片修复/擦除
+ * 使用遮罩指定要擦除或编辑的区域
+ * 支持通过 provider 参数指定提供商
+ */
+aiRouter.post(
+  '/inpaint',
+  validateBody(schemas.inpaintImage),
+  asyncHandler(async (req: Request, res: Response) => {
+    const { image, mask, prompt, model, provider: providerName } = req.body;
+
+    const provider = getProvider(providerName);
+
+    if (!provider.inpaintImage) {
+      throw HttpError.badRequest(
+        `提供商 ${provider.name} 不支持图片修复/擦除功能`,
+        'UNSUPPORTED_OPERATION'
+      );
+    }
+
+    const resultImage = await provider.inpaintImage({
+      image,
+      mask,
       prompt,
       model,
     });

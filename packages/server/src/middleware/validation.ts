@@ -90,6 +90,7 @@ export const schemas = {
   /**
    * AI 图像生成请求
    * POST /api/ai/generate
+   * 支持可选的参考图进行 AI 融合生成
    */
   generateImage: z.object({
     prompt: z.string()
@@ -98,8 +99,9 @@ export const schemas = {
     model: z.string().optional(),
     aspectRatio: z.enum(LIMITS.SUPPORTED_ASPECT_RATIOS).optional().default('1:1'),
     resolution: z.string().optional(),
-    size: z.enum(['1K', '2K', '4K']).optional(),  // 新增：图片尺寸
-    watermark: z.boolean().optional(),             // 新增：是否添加水印
+    size: z.string().optional(),  // 图片尺寸（1K/2K/4K 等）
+    watermark: z.boolean().optional(),             // 是否添加水印
+    referenceImage: base64ImageSchema.optional(), // 参考图（用于 AI 融合）
     provider: providerSchema,
   }),
 
@@ -116,6 +118,18 @@ export const schemas = {
       base64ImageSchema,                          // 单张图片
       z.array(base64ImageSchema).min(1).max(5),   // 多张参考图（最多5张）
     ]),
+    model: z.string().optional(),
+    provider: providerSchema,
+  }),
+
+  /**
+   * AI 图像修复/擦除请求
+   * POST /api/ai/inpaint
+   */
+  inpaintImage: z.object({
+    image: base64ImageSchema,  // 原始图片
+    mask: base64ImageSchema,   // 遮罩图片（白色区域表示要擦除的区域）
+    prompt: z.string().max(LIMITS.MAX_PROMPT_LENGTH).optional(), // 可选提示词
     model: z.string().optional(),
     provider: providerSchema,
   }),
@@ -140,7 +154,19 @@ export const schemas = {
       .array(
         z.object({
           role: z.enum(['user', 'assistant', 'system']),
-          content: z.string().max(LIMITS.MAX_MESSAGE_LENGTH, '消息内容过长'),
+          // 支持字符串或多模态数组
+          content: z.union([
+            z.string().max(LIMITS.MAX_MESSAGE_LENGTH, '消息内容过长'),
+            z.array(
+              z.union([
+                z.object({ type: z.literal('text'), text: z.string() }),
+                z.object({
+                  type: z.literal('image_url'),
+                  image_url: z.object({ url: z.string() }),
+                }),
+              ])
+            ),
+          ]),
           attachments: z
             .array(
               z.object({
@@ -156,6 +182,25 @@ export const schemas = {
     webSearchEnabled: z.boolean().optional().default(false),
     stream: z.boolean().optional().default(true),
     provider: providerSchema,
+    // 画布上下文
+    canvasContext: z
+      .object({
+        items: z.array(
+          z.object({
+            id: z.string(),
+            type: z.enum(['image', 'text', 'rectangle', 'circle', 'brush', 'line', 'arrow']),
+            position: z.object({ x: z.number(), y: z.number() }),
+            size: z.object({ width: z.number(), height: z.number() }),
+            imageData: z.string().optional(),
+            prompt: z.string().optional(),
+            textContent: z.string().optional(),
+            fill: z.string().optional(),
+            stroke: z.string().optional(),
+          })
+        ),
+        selectedIds: z.array(z.string()),
+      })
+      .optional(),
   }),
 };
 
@@ -164,5 +209,6 @@ export const schemas = {
  */
 export type GenerateImageInput = z.infer<typeof schemas.generateImage>;
 export type EditImageInput = z.infer<typeof schemas.editImage>;
+export type InpaintImageInput = z.infer<typeof schemas.inpaintImage>;
 export type UpscaleImageInput = z.infer<typeof schemas.upscaleImage>;
 export type ChatMessageInput = z.infer<typeof schemas.chatMessage>;

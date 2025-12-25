@@ -1,5 +1,5 @@
 import { useState, useCallback, useReducer } from 'react';
-import { CanvasItem, ToolMode, Storyboard } from '@/types';
+import { CanvasItem, ToolMode } from '@/types';
 import { generateId } from '@/utils/id';
 
 // Types

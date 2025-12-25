@@ -127,7 +127,14 @@ export class MockChatProvider implements ChatProvider {
     await this.delay(500 + Math.random() * 1000);
 
     const lastMessage = request.messages[request.messages.length - 1];
-    const userContent = lastMessage?.content?.toLowerCase() || '';
+    // 处理多模态内容
+    let userContent = '';
+    if (typeof lastMessage?.content === 'string') {
+      userContent = lastMessage.content.toLowerCase();
+    } else if (Array.isArray(lastMessage?.content)) {
+      const textPart = lastMessage.content.find(p => p.type === 'text');
+      userContent = (textPart && 'text' in textPart ? textPart.text : '').toLowerCase();
+    }
 
     // 查找匹配的模拟回复
     let response = this.defaultResponse;

@@ -4,7 +4,7 @@
  * 文档: https://www.volcengine.com/docs/82379
  */
 
-import { AIProvider, GenerateImageParams, EditImageParams, UpscaleImageParams } from './base.js';
+import { AIProvider, GenerateImageParams, EditImageParams, InpaintImageParams, UpscaleImageParams } from './base.js';
 import { config } from '../config.js';
 import { uploadImages } from '../services/imageUpload.js';
 
@@ -36,14 +36,50 @@ export class DoubaoProvider implements AIProvider {
       throw new Error('未配置豆包 API Key，请在 .env 中设置 DOUBAO_API_KEY');
     }
 
-    console.log(`[Doubao] 文生图: model=${model}, size=${params.size || '2K'}, prompt="${params.prompt.slice(0, 50)}..."`);
+    // 豆包 API 的 size 参数支持: 'WIDTHxHEIGHT', '1k', '2k', '4k'
+    // 需要将宽高比 + 分辨率转换为具体像素尺寸
+    const resolution = (params.size || '2k').toLowerCase(); // 1k, 2k, 4k
+    const aspectRatio = params.aspectRatio || '1:1';
 
-    const requestBody = {
+    // 根据分辨率获取基础像素
+    const basePixels: Record<string, number> = {
+      '720': 720,
+      '1k': 1024,
+      '1080': 1080,
+      '2k': 2048,
+      '4k': 4096,
+    };
+    const base = basePixels[resolution] || 2048;
+
+    // 根据宽高比计算具体尺寸
+    const [w, h] = aspectRatio.split(':').map(Number);
+    const ratio = w / h;
+    let width: number, height: number;
+
+    if (ratio >= 1) {
+      // 横向或正方形
+      width = base;
+      height = Math.round(base / ratio);
+    } else {
+      // 纵向
+      height = base;
+      width = Math.round(base * ratio);
+    }
+
+    // 确保尺寸在有效范围内 [720, 4096]
+    width = Math.max(720, Math.min(4096, width));
+    height = Math.max(720, Math.min(4096, height));
+
+    const sizeValue = `${width}x${height}`;
+
+    console.log(`[Doubao] 文生图: model=${model}, size=${sizeValue}, prompt="${params.prompt.slice(0, 50)}..."`);
+
+    const requestBody: Record<string, any> = {
       model: model,
       prompt: params.prompt,
       sequential_image_generation: 'disabled',  // 禁用组图生成，只生成单张
       response_format: 'url',                   // 返回 URL
-      size: params.size || '2K',                // 使用 size 参数
+      size: sizeValue,                          // 支持宽高比或分辨率
       stream: false,
       watermark: params.watermark ?? true,      // 默认添加水印
     };
@@ -206,6 +242,108 @@ export class DoubaoProvider implements AIProvider {
       console.error('[Doubao] 响应中未找到图片数据');
     }
     throw new Error('豆包 API 响应格式异常，未返回图片数据');
+  }
+
+  /**
+   * 图片修复/擦除
+   * 使用遮罩指定要擦除的区域
+   * 豆包 Seedream 不直接支持 mask-based inpainting
+   * 这里通过将 mask 叠加到原图上，让 AI 识别并擦除
+   */
+  async inpaintImage(params: InpaintImageParams): Promise<string> {
+    const { image, mask, prompt, model } = params;
+
+    if (!this.cfg.apiKey) {
+      throw new Error('未配置豆包 API Key，请在 .env 中设置 DOUBAO_API_KEY');
+    }
+
+    console.log(`[Doubao] 图片擦除: 合成遮罩后进行擦除`);
+
+    // 将原图和 mask 合成（用于让 AI 识别要擦除的区域）
+    const compositeImage = await this.compositeImageWithMask(image, mask);
+
+    // 构建擦除提示词
+    const inpaintPrompt = prompt
+      ? `请擦除图片中被蓝色半透明区域覆盖的部分，${prompt}，保持整体风格和背景的一致性`
+      : '请擦除图片中被蓝色半透明区域覆盖的部分，用周围的背景自然填充，保持整体风格一致';
+
+    // 使用 editImage 进行擦除
+    return this.editImage({
+      image: compositeImage,
+      prompt: inpaintPrompt,
+      model,
+    });
+  }
+
+  /**
+   * 将原图和遮罩合成
+   * 遮罩区域显示为半透明蓝色，便于 AI 识别
+   */
+  private async compositeImageWithMask(image: string, mask: string): Promise<string> {
+    // 由于服务端没有 Canvas API，我们使用 sharp 库进行图片处理
+    // 如果没有安装 sharp，我们直接返回原图并在 prompt 中描述
+    try {
+      const sharp = await import('sharp').then(m => m.default);
+
+      // 解析 base64 图片
+      const imageBuffer = Buffer.from(
+        image.includes(',') ? image.split(',')[1] : image,
+        'base64'
+      );
+      const maskBuffer = Buffer.from(
+        mask.includes(',') ? mask.split(',')[1] : mask,
+        'base64'
+      );
+
+      // 获取原图信息
+      const imageMetadata = await sharp(imageBuffer).metadata();
+      const width = imageMetadata.width || 1024;
+      const height = imageMetadata.height || 1024;
+
+      // 将 mask 调整为与原图相同尺寸
+      const resizedMask = await sharp(maskBuffer)
+        .resize(width, height)
+        .toBuffer();
+
+      // 创建半透明蓝色遮罩（将白色区域变为半透明蓝色）
+      const blueOverlay = await sharp(resizedMask)
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+
+      // 处理像素：白色变蓝色半透明，黑色变完全透明
+      const pixels = blueOverlay.data;
+      for (let i = 0; i < pixels.length; i += 4) {
+        const brightness = (pixels[i] + pixels[i + 1] + pixels[i + 2]) / 3;
+        if (brightness > 128) {
+          // 白色区域 -> 半透明蓝色
+          pixels[i] = 59;      // R (蓝色)
+          pixels[i + 1] = 130; // G
+          pixels[i + 2] = 246; // B
+          pixels[i + 3] = 150; // A (半透明)
+        } else {
+          // 黑色区域 -> 完全透明
+          pixels[i + 3] = 0;
+        }
+      }
+
+      // 将处理后的 overlay 转回 buffer
+      const overlayBuffer = await sharp(pixels, {
+        raw: { width, height, channels: 4 }
+      }).png().toBuffer();
+
+      // 合成图片
+      const composite = await sharp(imageBuffer)
+        .composite([{ input: overlayBuffer, blend: 'over' }])
+        .png()
+        .toBuffer();
+
+      return `data:image/png;base64,${composite.toString('base64')}`;
+    } catch (error) {
+      console.warn('[Doubao] sharp 库不可用，直接使用原图进行擦除');
+      // 如果 sharp 不可用，直接返回原图
+      return image;
+    }
   }
 
   /**

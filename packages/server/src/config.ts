@@ -47,6 +47,14 @@ export const config = {
       chatModel: process.env.QWEN_CHAT_MODEL || '',
     } as ProviderConfig,
 
+    // OpenRouter 配置 (支持多种模型)
+    openrouter: {
+      apiKey: process.env.OPENROUTER_API_KEY || '',
+      baseUrl: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
+      imageModel: process.env.OPENROUTER_IMAGE_MODEL || '',
+      chatModel: process.env.OPENROUTER_CHAT_MODEL || 'minimax/minimax-m2.1',
+    } as ProviderConfig,
+
     // 自定义提供商（向后兼容）
     custom: {
       apiKey: process.env.AI_API_KEY || '',

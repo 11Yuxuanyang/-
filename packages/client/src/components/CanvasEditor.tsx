@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import html2canvas from 'html2canvas';
 import {
   MousePointer2,
   Type,
@@ -18,19 +19,21 @@ import {
   Square,
   Circle,
   Shapes,
-  ScrollText,
   Lock,
   Diamond,
   MoveRight,
   Minus,
   Eraser,
   Image as LucideImage,
+  Loader2,
+  Sparkles,
+  Wand2,
 } from 'lucide-react';
 import { CanvasOnboarding } from './CanvasOnboarding';
 import { FloatingToolbar } from './FloatingToolbar';
+import { ImageMaskEditor } from './ImageMaskEditor';
 import { IconBtn } from './IconBtn';
-import { StoryboardEditor, SceneDetailModal, ImagePicker } from './Storyboard';
-import { CanvasItem, ToolMode, Project, Storyboard, Scene } from '../types';
+import { CanvasItem, ToolMode, Project } from '../types';
 import * as API from '../services/api';
 import * as ProjectService from '../services/projectService';
 import { ChatbotPanel } from './chatbot';
@@ -60,20 +63,29 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
   // Generation State
   const [prompt, setPrompt] = useState("");
   const [aspectRatio, setAspectRatio] = useState("1:1");
-  const [resolution, setResolution] = useState("1024");
+  const [resolution, setResolution] = useState("2K");
   const [isProcessing, setIsProcessing] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  // Loading 占位区域位置（画布坐标系）
+  const [loadingPosition, setLoadingPosition] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
 
   // Dragging State
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [itemStart, setItemStart] = useState({ x: 0, y: 0 });
+  // 多选拖动时保存所有选中元素的初始位置
+  const [itemsStartPositions, setItemsStartPositions] = useState<Record<string, { x: number; y: number }>>({});
 
   // Resizing State
   const [isResizing, setIsResizing] = useState(false);
   const [resizeCorner, setResizeCorner] = useState<string | null>(null);
   const [resizeStart, setResizeStart] = useState({ x: 0, y: 0 });
   const [itemStartSize, setItemStartSize] = useState({ width: 0, height: 0, x: 0, y: 0 });
+  // 多选缩放时保存边界框和所有元素的初始状态
+  const [multiResizeData, setMultiResizeData] = useState<{
+    boundingBox: { x: number; y: number; width: number; height: number };
+    items: Record<string, { x: number; y: number; width: number; height: number; relX: number; relY: number; relW: number; relH: number }>;
+  } | null>(null);
 
   // 框选状态
   const [isSelecting, setIsSelecting] = useState(false);
@@ -104,23 +116,27 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
   // Chatbot 状态
   const [isChatOpen, setIsChatOpen] = useState(false);
 
-  // 剧本模式状态
-  const [showStoryboard, setShowStoryboard] = useState(false);
-  const [storyboard, setStoryboard] = useState<Storyboard | null>(project.storyboard || null);
-  const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
-  const [showSceneDetail, setShowSceneDetail] = useState(false);
-  const [showImagePicker, setShowImagePicker] = useState(false);
-  const [imagePickerSceneId, setImagePickerSceneId] = useState<string | null>(null);
+  // AI 融合状态
+  const [showFusionPanel, setShowFusionPanel] = useState(false);
+  const [fusionPrompt, setFusionPrompt] = useState('');
+  const [isFusing, setIsFusing] = useState(false);
+  const [fusionReferenceImage, setFusionReferenceImage] = useState<string | null>(null);
+
+  // 图片擦除状态（Inpainting）
+  const [inpaintingImage, setInpaintingImage] = useState<{ id: string; src: string } | null>(null);
 
   const canvasRef = useRef<HTMLDivElement>(null);
+  const canvasContentRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const loadingPositionRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
 
   const handleTemplateSelect = (template: 'cyberpunk' | 'mascot' | 'surreal') => {
     // Mock template loading - in real app this would load specific JSON
-    const centerX = -pan.x + (window.innerWidth / 2);
-    const centerY = -pan.y + (window.innerHeight / 2);
+    // 视口中心对应的画布坐标
+    const centerX = -pan.x / scale;
+    const centerY = -pan.y / scale;
 
     let newItems: CanvasItem[] = [];
 
@@ -155,14 +171,13 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         items,
         thumbnail: firstImage?.src,
         viewport: { scale, pan },
-        storyboard: storyboard || undefined,
         updatedAt: Date.now(),
       };
       ProjectService.saveProject(updatedProject);
     }, 500);
 
     return () => clearTimeout(saveTimeout);
-  }, [items, scale, pan, projectName, storyboard]);
+  }, [items, scale, pan, projectName]);
 
   // Check for pending prompt from homepage
   useEffect(() => {
@@ -191,8 +206,8 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                   id: generateId(),
                   type: 'image',
                   src: base64Image,
-                  x: -pan.x + (window.innerWidth / 2) - displaySize / 2,
-                  y: -pan.y + (window.innerHeight / 2) - displaySize / 2,
+                  x: -pan.x / scale - displaySize / 2,
+                  y: -pan.y / scale - displaySize / 2,
                   width: displaySize,
                   height: displaySize,
                   zIndex: items.length + 1,
@@ -335,8 +350,8 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
       id: generateId(),
       type: 'image',
       src,
-      x: -pan.x + (window.innerWidth / 2) - 200,
-      y: -pan.y + (window.innerHeight / 2) - 150,
+      x: -pan.x / scale - 200,
+      y: -pan.y / scale - 150,
       width: 400,
       height: 300,
       zIndex: items.length + 1,
@@ -356,14 +371,16 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
       const img = new Image();
       img.src = src;
       img.onload = () => {
+        const displayWidth = img.width > 512 ? 512 : img.width;
+        const displayHeight = img.height > 512 ? (img.height / img.width) * 512 : img.height;
         const newItem: CanvasItem = {
           id: generateId(),
           type: 'image',
           src,
-          x: -pan.x + (window.innerWidth / 2) - (img.width / 4),
-          y: -pan.y + (window.innerHeight / 2) - (img.height / 4),
-          width: img.width > 512 ? 512 : img.width,
-          height: img.height > 512 ? (img.height / img.width) * 512 : img.height,
+          x: -pan.x / scale - displayWidth / 2,
+          y: -pan.y / scale - displayHeight / 2,
+          width: displayWidth,
+          height: displayHeight,
           zIndex: items.length + 1,
         };
         setItems(prev => [...prev, newItem]);
@@ -376,7 +393,24 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
 
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
+
+    // 保存当前提示词并立即清空输入框
+    const currentPrompt = prompt.trim();
+    setPrompt("");
     setIsProcessing(true);
+
+    // 计算 loading 占位区域的位置和尺寸（在视口中心）
+    const displaySize = 400;
+    const [w, h] = aspectRatio.split(':').map(Number);
+    const ratio = w / h;
+    const width = ratio >= 1 ? displaySize : displaySize * ratio;
+    const height = ratio >= 1 ? displaySize / ratio : displaySize;
+    // 视口中心对应的画布坐标 = -pan / scale
+    const loadingX = -pan.x / scale - width / 2;
+    const loadingY = -pan.y / scale - height / 2;
+    const initialPosition = { x: loadingX, y: loadingY, width, height };
+    setLoadingPosition(initialPosition);
+    loadingPositionRef.current = initialPosition;
 
     try {
       // 获取所有选中的图片（支持多参考图）
@@ -393,46 +427,52 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         newImageSrc = await API.editImage({
           // 单张图传字符串，多张图传数组
           image: imageSources.length === 1 ? imageSources[0] : imageSources,
-          prompt,
+          prompt: currentPrompt,
         });
       } else {
         // 文生图模式
-        newImageSrc = await API.generateImage({
-          prompt,
+        const result = await API.generateImage({
+          prompt: currentPrompt,
           aspectRatio,
+          size: resolution,
         });
+        if (!result.success || !result.imageUrl) {
+          throw new Error(result.error || '生成失败');
+        }
+        newImageSrc = result.imageUrl;
       }
 
-      // 统一处理：创建新图片添加到画布（不替换任何原图）
+      // 统一处理：创建新图片添加到画布（使用 ref 获取最新的 loading 位置）
       const img = new window.Image();
       img.src = newImageSrc;
       img.onload = () => {
-        // 根据宽高比计算显示尺寸
-        const displaySize = 400;
-        const [w, h] = aspectRatio.split(':').map(Number);
-        const ratio = w / h;
-        const width = ratio >= 1 ? displaySize : displaySize * ratio;
-        const height = ratio >= 1 ? displaySize / ratio : displaySize;
+        // 使用 ref 获取最新的 loading 位置（用户可能拖动了）
+        const currentPos = loadingPositionRef.current;
+        const finalX = currentPos?.x ?? loadingX;
+        const finalY = currentPos?.y ?? loadingY;
 
         const newItem: CanvasItem = {
           id: generateId(),
           type: 'image',
           src: newImageSrc,
-          x: -pan.x + (window.innerWidth / 2) - width / 2,
-          y: -pan.y + (window.innerHeight / 2) - height / 2,
+          x: finalX,
+          y: finalY,
           width,
           height,
           zIndex: items.length + 1,
-          prompt: prompt
+          prompt: currentPrompt
         };
         setItems(prev => [...prev, newItem]);
         setSelectedIds([newItem.id]);
-        setPrompt("");
+        setLoadingPosition(null);
+        loadingPositionRef.current = null;
       };
 
     } catch (error) {
       console.error(error);
       alert("处理失败，请检查后端服务是否正常运行。");
+      setLoadingPosition(null);
+      loadingPositionRef.current = null;
     } finally {
       setIsProcessing(false);
     }
@@ -497,6 +537,151 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
     if (selectedIds.length === 0) return;
     setItems(prev => prev.filter(i => !selectedIds.includes(i.id)));
     setSelectedIds([]);
+  };
+
+  // 打开图片擦除编辑器
+  const handleOpenInpaint = () => {
+    const selectedItem = selectedIds.length > 0 ? items.find(i => i.id === selectedIds[0]) : null;
+    if (!selectedItem || selectedItem.type !== 'image') return;
+
+    setInpaintingImage({
+      id: selectedItem.id,
+      src: selectedItem.src,
+    });
+  };
+
+  // 处理图片擦除
+  const handleInpaintConfirm = async (maskDataUrl: string) => {
+    if (!inpaintingImage) return;
+
+    setInpaintingImage(null);
+    setIsProcessing(true);
+
+    try {
+      const newImageSrc = await API.inpaintImage({
+        image: inpaintingImage.src,
+        mask: maskDataUrl,
+      });
+
+      if (newImageSrc) {
+        setItems(prev => prev.map(item =>
+          item.id === inpaintingImage.id
+            ? { ...item, src: newImageSrc }
+            : item
+        ));
+      }
+    } catch (e) {
+      console.error('图片擦除失败:', e);
+      alert('擦除失败，请检查后端服务是否正常运行。');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // AI 融合 - 截取选中区域作为参考图
+  const handleAIFusion = async () => {
+    if (selectedIds.length < 2 || !canvasContentRef.current) return;
+
+    const selectedItems = items.filter(item => selectedIds.includes(item.id));
+    if (selectedItems.length === 0) return;
+
+    // 计算选中区域的边界
+    const minX = Math.min(...selectedItems.map(item => item.x));
+    const minY = Math.min(...selectedItems.map(item => item.y));
+    const maxX = Math.max(...selectedItems.map(item => item.x + item.width));
+    const maxY = Math.max(...selectedItems.map(item => item.y + item.height));
+
+    const padding = 20;
+    const boundingBox = {
+      x: minX - padding,
+      y: minY - padding,
+      width: maxX - minX + padding * 2,
+      height: maxY - minY + padding * 2,
+    };
+
+    try {
+      // 使用 html2canvas 截取画布内容区域
+      const canvas = await html2canvas(canvasContentRef.current, {
+        backgroundColor: '#f8f9fa',
+        scale: 2, // 高清截图
+        x: boundingBox.x,
+        y: boundingBox.y,
+        width: boundingBox.width,
+        height: boundingBox.height,
+        useCORS: true,
+        allowTaint: true,
+      });
+
+      const dataUrl = canvas.toDataURL('image/png');
+      setFusionReferenceImage(dataUrl);
+      setShowFusionPanel(true);
+    } catch (error) {
+      console.error('截取画布失败:', error);
+    }
+  };
+
+  // 执行 AI 融合生成
+  const executeAIFusion = async () => {
+    if (!fusionReferenceImage || !fusionPrompt.trim()) return;
+
+    setIsFusing(true);
+    setShowFusionPanel(false);
+
+    // 计算放置位置（在选中区域右侧）
+    const selectedItems = items.filter(item => selectedIds.includes(item.id));
+    const maxX = Math.max(...selectedItems.map(item => item.x + item.width));
+    const minY = Math.min(...selectedItems.map(item => item.y));
+    const avgHeight = selectedItems.reduce((sum, item) => sum + item.height, 0) / selectedItems.length;
+
+    // 解析宽高比
+    const [w, h] = aspectRatio.split(':').map(Number);
+    const ratio = w / h;
+    const width = ratio >= 1 ? 512 : 512 * ratio;
+    const height = ratio >= 1 ? 512 / ratio : 512;
+
+    // 设置 loading 位置
+    const loadingPos = {
+      x: maxX + 40,
+      y: minY,
+      width,
+      height,
+    };
+    setLoadingPosition(loadingPos);
+    loadingPositionRef.current = loadingPos;
+
+    try {
+      // 调用 AI 生成 API，传入参考图
+      const result = await API.generateImage({
+        prompt: fusionPrompt,
+        aspectRatio,
+        size: resolution,
+        referenceImage: fusionReferenceImage,
+      });
+
+      if (result.success && result.imageUrl) {
+        const pos = loadingPositionRef.current || loadingPos;
+        const newItem: CanvasItem = {
+          id: generateId(),
+          type: 'image',
+          src: result.imageUrl,
+          x: pos.x,
+          y: pos.y,
+          width: pos.width,
+          height: pos.height,
+          zIndex: Math.max(...items.map(i => i.zIndex), 0) + 1,
+        };
+        setItems(prev => [...prev, newItem]);
+        setSelectedIds([newItem.id]);
+      }
+    } catch (error) {
+      console.error('AI 融合失败:', error);
+    } finally {
+      setIsFusing(false);
+      setLoadingPosition(null);
+      loadingPositionRef.current = null;
+      setFusionReferenceImage(null);
+      setFusionPrompt('');
+    }
   };
 
   // 开始裁切图片
@@ -569,26 +754,32 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
     const clickedItem = [...items].reverse().find(item => {
       const screenX = item.x * scale + pan.x + (window.innerWidth / 2);
       const screenY = item.y * scale + pan.y + (window.innerHeight / 2);
-      const screenW = item.width * scale;
-      const screenH = item.height * scale;
+      // 为线条和箭头添加最小点击区域
+      const minHitArea = (item.type === 'line' || item.type === 'arrow') ? 20 : 0;
+      const screenW = Math.max(item.width * scale, minHitArea);
+      const screenH = Math.max(item.height * scale, minHitArea);
+      // 对于线条，需要调整点击区域的起始位置
+      const offsetX = (item.type === 'line' || item.type === 'arrow') && item.width * scale < minHitArea
+        ? -(minHitArea - item.width * scale) / 2 : 0;
+      const offsetY = (item.type === 'line' || item.type === 'arrow') && item.height * scale < minHitArea
+        ? -(minHitArea - item.height * scale) / 2 : 0;
 
       return (
-        e.clientX >= screenX &&
-        e.clientX <= screenX + screenW &&
-        e.clientY >= screenY &&
-        e.clientY <= screenY + screenH
+        e.clientX >= screenX + offsetX &&
+        e.clientX <= screenX + offsetX + screenW &&
+        e.clientY >= screenY + offsetY &&
+        e.clientY <= screenY + offsetY + screenH
       );
     });
 
     if (clickedItem) {
-      // 图片类型：点击累加/取消选择（用于多参考图模式）
+      const isAlreadySelected = selectedIds.includes(clickedItem.id);
+
+      // 图片类型：支持多选（最多5张）
       if (clickedItem.type === 'image') {
-        setSelectedIds(prev => {
-          if (prev.includes(clickedItem.id)) {
-            // 已选中：取消选择
-            return prev.filter(id => id !== clickedItem.id);
-          } else {
-            // 未选中：添加到选择列表（最多5张）
+        if (!isAlreadySelected) {
+          // 未选中：添加到选择列表
+          setSelectedIds(prev => {
             if (prev.filter(id => items.find(item => item.id === id && item.type === 'image')).length >= 5) {
               // 已达到上限，替换最早选中的
               const imageIds = prev.filter(id => items.find(item => item.id === id && item.type === 'image'));
@@ -596,17 +787,30 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
               return [...nonImageIds, ...imageIds.slice(1), clickedItem.id];
             }
             return [...prev, clickedItem.id];
-          }
-        });
+          });
+        }
+        // 已选中的图片：直接准备拖动，不改变选中状态
       } else {
         // 非图片元素：普通单选模式
-        setSelectedIds([clickedItem.id]);
+        if (!isAlreadySelected) {
+          setSelectedIds([clickedItem.id]);
+        }
       }
 
       if (toolMode === ToolMode.SELECT) {
         setIsDragging(true);
         setDragStart({ x: e.clientX, y: e.clientY });
         setItemStart({ x: clickedItem.x, y: clickedItem.y });
+        // 保存所有选中元素的初始位置（包括当前点击的元素）
+        const currentSelectedIds = isAlreadySelected ? selectedIds :
+          (clickedItem.type === 'image' && e.shiftKey ? [...selectedIds, clickedItem.id] : [clickedItem.id]);
+        const positions: Record<string, { x: number; y: number }> = {};
+        items.forEach(item => {
+          if (currentSelectedIds.includes(item.id)) {
+            positions[item.id] = { x: item.x, y: item.y };
+          }
+        });
+        setItemsStartPositions(positions);
       }
     } else {
       // 没有点击到物品
@@ -637,15 +841,15 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         setEditingTextId(newTextItem.id);
         setToolMode(ToolMode.SELECT);
       } else if (toolMode === ToolMode.RECTANGLE) {
-        // 创建矩形
+        // 创建矩形 - 拖拽绘制
         const newRectItem: CanvasItem = {
           id: generateId(),
           type: 'rectangle',
           src: '',
           x: canvasX,
           y: canvasY,
-          width: 150,
-          height: 100,
+          width: 0,
+          height: 0,
           zIndex: items.length + 1,
           fill: '#e5e7eb',
           stroke: '#9ca3af',
@@ -654,17 +858,19 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         };
         setItems(prev => [...prev, newRectItem]);
         setSelectedIds([newRectItem.id]);
-        setToolMode(ToolMode.SELECT);
+        setIsDragging(true);
+        setDragStart({ x: e.clientX, y: e.clientY });
+        setItemStart({ x: canvasX, y: canvasY });
       } else if (toolMode === ToolMode.CIRCLE) {
-        // 创建圆形
+        // 创建圆形 - 拖拽绘制
         const newCircleItem: CanvasItem = {
           id: generateId(),
           type: 'circle',
           src: '',
           x: canvasX,
           y: canvasY,
-          width: 120,
-          height: 120,
+          width: 0,
+          height: 0,
           zIndex: items.length + 1,
           fill: '#ddd6fe',
           stroke: '#a78bfa',
@@ -672,41 +878,51 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         };
         setItems(prev => [...prev, newCircleItem]);
         setSelectedIds([newCircleItem.id]);
-        setToolMode(ToolMode.SELECT);
+        setIsDragging(true);
+        setDragStart({ x: e.clientX, y: e.clientY });
+        setItemStart({ x: canvasX, y: canvasY });
       } else if (toolMode === ToolMode.LINE) {
-        // 创建直线
+        // 创建直线 - 拖拽绘制，存储起点终点
         const newLineItem: CanvasItem = {
           id: generateId(),
           type: 'line',
           src: '',
           x: canvasX,
           y: canvasY,
-          width: 150,
+          width: 0,
           height: 0,
           zIndex: items.length + 1,
           stroke: '#6b7280',
           strokeWidth: 2,
+          startPoint: { x: canvasX, y: canvasY },
+          endPoint: { x: canvasX, y: canvasY },
         };
         setItems(prev => [...prev, newLineItem]);
         setSelectedIds([newLineItem.id]);
-        setToolMode(ToolMode.SELECT);
+        setIsDragging(true);
+        setDragStart({ x: e.clientX, y: e.clientY });
+        setItemStart({ x: canvasX, y: canvasY });
       } else if (toolMode === ToolMode.ARROW) {
-        // 创建箭头
+        // 创建箭头 - 拖拽绘制，存储起点终点
         const newArrowItem: CanvasItem = {
           id: generateId(),
           type: 'arrow',
           src: '',
           x: canvasX,
           y: canvasY,
-          width: 150,
+          width: 0,
           height: 0,
           zIndex: items.length + 1,
           stroke: '#6b7280',
           strokeWidth: 2,
+          startPoint: { x: canvasX, y: canvasY },
+          endPoint: { x: canvasX, y: canvasY },
         };
         setItems(prev => [...prev, newArrowItem]);
         setSelectedIds([newArrowItem.id]);
-        setToolMode(ToolMode.SELECT);
+        setIsDragging(true);
+        setDragStart({ x: e.clientX, y: e.clientY });
+        setItemStart({ x: canvasX, y: canvasY });
       } else if (toolMode === ToolMode.BRUSH) {
         // 画笔 - 开始绘制路径
         const newBrushItem: CanvasItem = {
@@ -745,11 +961,102 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
 
     if (isResizing && selectedIds.length > 0 && resizeCorner) {
       const dx = (e.clientX - resizeStart.x) / scale;
+      const dy = (e.clientY - resizeStart.y) / scale;
 
+      // 多选整体缩放
+      if (multiResizeData && selectedIds.length > 1) {
+        const bb = multiResizeData.boundingBox;
+        const ratio = bb.height > 0 ? bb.width / bb.height : 1;
+        let newBBWidth = bb.width;
+        let newBBHeight = bb.height;
+        let newBBX = bb.x;
+        let newBBY = bb.y;
+
+        // 计算新的边界框大小（等比缩放）
+        if (resizeCorner === 'br') {
+          newBBWidth = Math.max(50, bb.width + dx);
+          newBBHeight = newBBWidth / ratio;
+        } else if (resizeCorner === 'bl') {
+          newBBWidth = Math.max(50, bb.width - dx);
+          newBBHeight = newBBWidth / ratio;
+          newBBX = bb.x + (bb.width - newBBWidth);
+        } else if (resizeCorner === 'tr') {
+          newBBWidth = Math.max(50, bb.width + dx);
+          newBBHeight = newBBWidth / ratio;
+          newBBY = bb.y + (bb.height - newBBHeight);
+        } else if (resizeCorner === 'tl') {
+          newBBWidth = Math.max(50, bb.width - dx);
+          newBBHeight = newBBWidth / ratio;
+          newBBX = bb.x + (bb.width - newBBWidth);
+          newBBY = bb.y + (bb.height - newBBHeight);
+        }
+
+        // 更新所有选中元素
+        setItems(prev => prev.map(item => {
+          if (!selectedIds.includes(item.id)) return item;
+          const itemData = multiResizeData.items[item.id];
+          if (!itemData) return item;
+
+          const newX = newBBX + itemData.relX * newBBWidth;
+          const newY = newBBY + itemData.relY * newBBHeight;
+          const newWidth = Math.max(20, itemData.relW * newBBWidth);
+          const newHeight = Math.max(20, itemData.relH * newBBHeight);
+
+          return { ...item, x: newX, y: newY, width: newWidth, height: newHeight };
+        }));
+        return;
+      }
+
+      // 单选缩放
       setItems(prev => prev.map(item => {
         if (item.id !== selectedIds[0]) return item;
 
-        const ratio = itemStartSize.width / itemStartSize.height;
+        // LINE/ARROW 使用自由缩放，同时更新起点终点
+        if (item.type === 'line' || item.type === 'arrow') {
+          let newWidth = itemStartSize.width;
+          let newHeight = itemStartSize.height;
+          let newX = itemStartSize.x;
+          let newY = itemStartSize.y;
+
+          if (resizeCorner === 'br') {
+            newWidth = Math.max(10, itemStartSize.width + dx);
+            newHeight = Math.max(10, itemStartSize.height + dy);
+          } else if (resizeCorner === 'bl') {
+            newWidth = Math.max(10, itemStartSize.width - dx);
+            newHeight = Math.max(10, itemStartSize.height + dy);
+            newX = itemStartSize.x + (itemStartSize.width - newWidth);
+          } else if (resizeCorner === 'tr') {
+            newWidth = Math.max(10, itemStartSize.width + dx);
+            newHeight = Math.max(10, itemStartSize.height - dy);
+            newY = itemStartSize.y + (itemStartSize.height - newHeight);
+          } else if (resizeCorner === 'tl') {
+            newWidth = Math.max(10, itemStartSize.width - dx);
+            newHeight = Math.max(10, itemStartSize.height - dy);
+            newX = itemStartSize.x + (itemStartSize.width - newWidth);
+            newY = itemStartSize.y + (itemStartSize.height - newHeight);
+          }
+
+          // 更新起点终点坐标
+          const scaleX = itemStartSize.width > 0 ? newWidth / itemStartSize.width : 1;
+          const scaleY = itemStartSize.height > 0 ? newHeight / itemStartSize.height : 1;
+          let newStartPoint = item.startPoint;
+          let newEndPoint = item.endPoint;
+
+          if (item.startPoint && item.endPoint) {
+            const relStartX = item.startPoint.x - itemStartSize.x;
+            const relStartY = item.startPoint.y - itemStartSize.y;
+            const relEndX = item.endPoint.x - itemStartSize.x;
+            const relEndY = item.endPoint.y - itemStartSize.y;
+
+            newStartPoint = { x: newX + relStartX * scaleX, y: newY + relStartY * scaleY };
+            newEndPoint = { x: newX + relEndX * scaleX, y: newY + relEndY * scaleY };
+          }
+
+          return { ...item, width: newWidth, height: newHeight, x: newX, y: newY, startPoint: newStartPoint, endPoint: newEndPoint };
+        }
+
+        // 其他形状使用等比缩放
+        const ratio = itemStartSize.height > 0 ? itemStartSize.width / itemStartSize.height : 1;
         let newWidth = itemStartSize.width;
         let newHeight = itemStartSize.height;
         let newX = itemStartSize.x;
@@ -785,38 +1092,138 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
 
     if (isDragging && selectedIds.length > 0) {
       const selectedItem = items.find(i => i.id === selectedIds[0]);
+      const canvasX = (e.clientX - window.innerWidth / 2 - pan.x) / scale;
+      const canvasY = (e.clientY - window.innerHeight / 2 - pan.y) / scale;
 
       // 画笔模式 - 添加新点
       if (selectedItem?.type === 'brush' && toolMode === ToolMode.BRUSH) {
-        const canvasX = (e.clientX - window.innerWidth / 2 - pan.x) / scale;
-        const canvasY = (e.clientY - window.innerHeight / 2 - pan.y) / scale;
-
         setItems(prev => prev.map(item =>
           item.id === selectedIds[0] && item.points
             ? { ...item, points: [...item.points, { x: canvasX, y: canvasY }] }
             : item
         ));
-      } else {
-        // 普通拖拽
+      }
+      // 矩形绘制模式
+      else if (selectedItem?.type === 'rectangle' && toolMode === ToolMode.RECTANGLE) {
+        const startX = itemStart.x;
+        const startY = itemStart.y;
+        const newX = Math.min(startX, canvasX);
+        const newY = Math.min(startY, canvasY);
+        const newWidth = Math.abs(canvasX - startX);
+        const newHeight = Math.abs(canvasY - startY);
+
+        setItems(prev => prev.map(item =>
+          item.id === selectedIds[0]
+            ? { ...item, x: newX, y: newY, width: newWidth, height: newHeight }
+            : item
+        ));
+      }
+      // 圆形绘制模式
+      else if (selectedItem?.type === 'circle' && toolMode === ToolMode.CIRCLE) {
+        const startX = itemStart.x;
+        const startY = itemStart.y;
+        const newX = Math.min(startX, canvasX);
+        const newY = Math.min(startY, canvasY);
+        const newWidth = Math.abs(canvasX - startX);
+        const newHeight = Math.abs(canvasY - startY);
+
+        setItems(prev => prev.map(item =>
+          item.id === selectedIds[0]
+            ? { ...item, x: newX, y: newY, width: newWidth, height: newHeight }
+            : item
+        ));
+      }
+      // 直线绘制模式
+      else if (selectedItem?.type === 'line' && toolMode === ToolMode.LINE) {
+        const startX = itemStart.x;
+        const startY = itemStart.y;
+        const minX = Math.min(startX, canvasX);
+        const minY = Math.min(startY, canvasY);
+        const maxX = Math.max(startX, canvasX);
+        const maxY = Math.max(startY, canvasY);
+
+        setItems(prev => prev.map(item =>
+          item.id === selectedIds[0]
+            ? {
+                ...item,
+                x: minX,
+                y: minY,
+                width: Math.max(maxX - minX, 1),
+                height: Math.max(maxY - minY, 1),
+                startPoint: { x: startX, y: startY },
+                endPoint: { x: canvasX, y: canvasY }
+              }
+            : item
+        ));
+      }
+      // 箭头绘制模式
+      else if (selectedItem?.type === 'arrow' && toolMode === ToolMode.ARROW) {
+        const startX = itemStart.x;
+        const startY = itemStart.y;
+        const minX = Math.min(startX, canvasX);
+        const minY = Math.min(startY, canvasY);
+        const maxX = Math.max(startX, canvasX);
+        const maxY = Math.max(startY, canvasY);
+
+        setItems(prev => prev.map(item =>
+          item.id === selectedIds[0]
+            ? {
+                ...item,
+                x: minX,
+                y: minY,
+                width: Math.max(maxX - minX, 1),
+                height: Math.max(maxY - minY, 1),
+                startPoint: { x: startX, y: startY },
+                endPoint: { x: canvasX, y: canvasY }
+              }
+            : item
+        ));
+      }
+      else {
+        // 普通拖拽移动
         const dx = (e.clientX - dragStart.x) / scale;
         const dy = (e.clientY - dragStart.y) / scale;
 
         setItems(prev => prev.map(item => {
           if (!selectedIds.includes(item.id)) return item;
 
+          // 获取该元素的初始位置
+          const startPos = itemsStartPositions[item.id] || { x: item.x, y: item.y };
+          const newX = startPos.x + dx;
+          const newY = startPos.y + dy;
+
           // 画笔需要同时移动所有点
           if (item.type === 'brush' && item.points) {
-            const offsetX = (itemStart.x + dx) - item.x;
-            const offsetY = (itemStart.y + dy) - item.y;
+            const offsetX = newX - item.x;
+            const offsetY = newY - item.y;
             return {
               ...item,
-              x: itemStart.x + dx,
-              y: itemStart.y + dy,
+              x: newX,
+              y: newY,
               points: item.points.map(p => ({ x: p.x + offsetX, y: p.y + offsetY }))
             };
           }
 
-          return { ...item, x: itemStart.x + dx, y: itemStart.y + dy };
+          // 直线和箭头移动时需要同时移动起点和终点
+          if ((item.type === 'line' || item.type === 'arrow') && item.startPoint && item.endPoint) {
+            const offsetX = newX - item.x;
+            const offsetY = newY - item.y;
+            return {
+              ...item,
+              x: newX,
+              y: newY,
+              startPoint: {
+                x: item.startPoint.x + offsetX,
+                y: item.startPoint.y + offsetY
+              },
+              endPoint: {
+                x: item.endPoint.x + offsetX,
+                y: item.endPoint.y + offsetY
+              }
+            };
+          }
+
+          return { ...item, x: newX, y: newY };
         }));
       }
     }
@@ -870,6 +1277,18 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
       setToolMode(ToolMode.SELECT);
     }
 
+    // 形状工具绘制结束
+    if ((toolMode === ToolMode.RECTANGLE || toolMode === ToolMode.CIRCLE ||
+         toolMode === ToolMode.LINE || toolMode === ToolMode.ARROW) && isDragging && selectedIds.length > 0) {
+      const shapeItem = items.find(i => i.id === selectedIds[0]);
+      // 如果形状太小，删除它
+      if (shapeItem && shapeItem.width < 5 && shapeItem.height < 5) {
+        setItems(prev => prev.filter(item => item.id !== selectedIds[0]));
+        setSelectedIds([]);
+      }
+      setToolMode(ToolMode.SELECT);
+    }
+
     setIsPanning(false);
     setIsDragging(false);
     setIsResizing(false);
@@ -879,18 +1298,53 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
 
   const handleResizeStart = (e: React.MouseEvent, corner: string) => {
     e.stopPropagation();
-    const selectedItem = selectedIds.length > 0 ? items.find(i => i.id === selectedIds[0]) : null;
-    if (!selectedItem) return;
+    if (selectedIds.length === 0) return;
 
     setIsResizing(true);
     setResizeCorner(corner);
     setResizeStart({ x: e.clientX, y: e.clientY });
-    setItemStartSize({
-      width: selectedItem.width,
-      height: selectedItem.height,
-      x: selectedItem.x,
-      y: selectedItem.y
-    });
+
+    // 多选缩放：计算边界框和每个元素的相对位置
+    if (selectedIds.length > 1) {
+      const selectedItems = items.filter(item => selectedIds.includes(item.id));
+      const minX = Math.min(...selectedItems.map(item => item.x));
+      const minY = Math.min(...selectedItems.map(item => item.y));
+      const maxX = Math.max(...selectedItems.map(item => item.x + item.width));
+      const maxY = Math.max(...selectedItems.map(item => item.y + item.height));
+      const bbWidth = maxX - minX;
+      const bbHeight = maxY - minY;
+
+      const itemsData: Record<string, { x: number; y: number; width: number; height: number; relX: number; relY: number; relW: number; relH: number }> = {};
+      selectedItems.forEach(item => {
+        itemsData[item.id] = {
+          x: item.x,
+          y: item.y,
+          width: item.width,
+          height: item.height,
+          relX: bbWidth > 0 ? (item.x - minX) / bbWidth : 0,
+          relY: bbHeight > 0 ? (item.y - minY) / bbHeight : 0,
+          relW: bbWidth > 0 ? item.width / bbWidth : 1,
+          relH: bbHeight > 0 ? item.height / bbHeight : 1,
+        };
+      });
+
+      setMultiResizeData({
+        boundingBox: { x: minX, y: minY, width: bbWidth, height: bbHeight },
+        items: itemsData,
+      });
+      setItemStartSize({ x: minX, y: minY, width: bbWidth, height: bbHeight });
+    } else {
+      // 单选缩放
+      const selectedItem = items.find(i => i.id === selectedIds[0]);
+      if (!selectedItem) return;
+      setMultiResizeData(null);
+      setItemStartSize({
+        width: selectedItem.width,
+        height: selectedItem.height,
+        x: selectedItem.x,
+        y: selectedItem.y
+      });
+    }
   };
 
   const handleWheel = (e: React.WheelEvent) => {
@@ -980,133 +1434,6 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
     if (projectName.trim() === '') {
       setProjectName('未命名画布');
     }
-  };
-
-  // --- Storyboard Functions ---
-
-  // 创建新的 Storyboard
-  const createNewStoryboard = (): Storyboard => ({
-    id: generateId(),
-    projectId: project.id,
-    title: '未命名剧本',
-    rawScript: '',
-    scenes: [],
-    totalDuration: 0,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    timelineZoom: 60,
-    timelineScrollPosition: 0,
-  });
-
-  // 确保有 storyboard
-  const currentStoryboard = storyboard || createNewStoryboard();
-
-  // 更新场景
-  const handleSceneUpdate = (updatedScene: Scene) => {
-    const scenes = currentStoryboard.scenes.map(s =>
-      s.id === updatedScene.id ? updatedScene : s
-    );
-    let currentTime = 0;
-    scenes.forEach(s => {
-      s.startTime = currentTime;
-      currentTime += s.duration;
-    });
-    setStoryboard({
-      ...currentStoryboard,
-      scenes,
-      totalDuration: currentTime,
-      updatedAt: Date.now(),
-    });
-  };
-
-  // 删除场景
-  const handleSceneDelete = (sceneId: string) => {
-    const scenes = currentStoryboard.scenes
-      .filter(s => s.id !== sceneId)
-      .map((s, i) => ({ ...s, order: i }));
-    let currentTime = 0;
-    scenes.forEach(s => {
-      s.startTime = currentTime;
-      currentTime += s.duration;
-    });
-    setStoryboard({
-      ...currentStoryboard,
-      scenes,
-      totalDuration: currentTime,
-      updatedAt: Date.now(),
-    });
-  };
-
-  // 添加新场景
-  const handleAddScene = () => {
-    const sb = storyboard || createNewStoryboard();
-    const newScene: Scene = {
-      id: generateId(),
-      order: sb.scenes.length,
-      title: `镜头 ${sb.scenes.length + 1}`,
-      description: '',
-      dialogue: '',
-      visualPrompt: '',
-      duration: 5,
-      startTime: sb.totalDuration,
-      imageSource: 'none',
-      status: 'draft',
-    };
-    setStoryboard({
-      ...sb,
-      scenes: [...sb.scenes, newScene],
-      totalDuration: sb.totalDuration + 5,
-      updatedAt: Date.now(),
-    });
-  };
-
-  // 打开场景详情
-  const handleSceneClick = (scene: Scene) => {
-    setSelectedSceneId(scene.id);
-    setShowSceneDetail(true);
-  };
-
-  // 打开图片选择器
-  const handleOpenImagePicker = (sceneId: string) => {
-    setImagePickerSceneId(sceneId);
-    setShowImagePicker(true);
-  };
-
-  // 选择画布图片
-  const handleSelectCanvasImage = (canvasItemId: string) => {
-    if (!imagePickerSceneId || !storyboard) return;
-    const scene = storyboard.scenes.find(s => s.id === imagePickerSceneId);
-    if (scene) {
-      handleSceneUpdate({
-        ...scene,
-        imageSource: 'canvas',
-        canvasItemId,
-        status: 'ready',
-      });
-    }
-    setShowImagePicker(false);
-    setImagePickerSceneId(null);
-  };
-
-  // 定位到场景对应的画布图片
-  const handleLocateScene = (scene: Scene) => {
-    if (scene.imageSource === 'canvas' && scene.canvasItemId) {
-      const item = items.find(i => i.id === scene.canvasItemId);
-      if (item) {
-        // 计算需要的 pan 值，使图片居中显示
-        const targetX = -(item.x + item.width / 2);
-        const targetY = -(item.y + item.height / 2);
-        setPan({ x: targetX, y: targetY });
-        setScale(1);
-        setSelectedIds([item.id]);
-      }
-    }
-  };
-
-  // 剧本导入（占位）
-  const handleImportScript = () => {
-    // TODO: 实现剧本导入功能
-    alert('剧本导入功能即将上线！');
   };
 
   // --- Render ---
@@ -1244,19 +1571,6 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
           )}
         </div>
 
-        {/* 分隔线 */}
-        <div className="w-6 h-px bg-gray-300 my-1" />
-
-        {/* 剧本模式 */}
-        <Tooltip content="剧本模式" side="right">
-          <button
-            className={`relative p-3 rounded-full transition-all duration-200 ease-out ${showStoryboard ? 'bg-violet-500 text-white shadow-md scale-105' : 'text-gray-500 hover:bg-gray-200/50 hover:scale-105'}`}
-            onClick={() => setShowStoryboard(!showStoryboard)}
-          >
-            <ScrollText size={20} />
-          </button>
-        </Tooltip>
-
         {/* AI 助手 */}
         <Tooltip content="AI 助手" side="right">
           <button
@@ -1292,6 +1606,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
 
         {/* Viewport Origin Center */}
         <div
+          ref={canvasContentRef}
           className="absolute top-1/2 left-1/2 w-0 h-0 transition-transform duration-150 ease-out"
           style={{
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`
@@ -1299,15 +1614,22 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         >
           {items.map(item => {
             const isSelected = selectedIds.includes(item.id);
+            // 为线条和箭头添加最小尺寸，确保选择框可见
+            const isLineType = item.type === 'line' || item.type === 'arrow';
+            const minSize = isLineType ? 20 : 0;
+            const displayWidth = Math.max(item.width, minSize);
+            const displayHeight = Math.max(item.height, minSize);
+            const offsetX = isLineType && item.width < minSize ? -(minSize - item.width) / 2 : 0;
+            const offsetY = isLineType && item.height < minSize ? -(minSize - item.height) / 2 : 0;
             return (
               <div
                 key={item.id}
                 className="absolute group select-none"
                 style={{
-                  left: item.x,
-                  top: item.y,
-                  width: item.width,
-                  height: item.height,
+                  left: item.x + offsetX,
+                  top: item.y + offsetY,
+                  width: displayWidth,
+                  height: displayHeight,
                   zIndex: item.zIndex
                 }}
               >
@@ -1465,14 +1787,19 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                 {/* 直线 */}
                 {item.type === 'line' && (
                   <svg
-                    className="absolute top-0 left-0 overflow-visible"
-                    style={{ width: item.width || 1, height: Math.max(item.height, 20) }}
+                    className="absolute overflow-visible pointer-events-none"
+                    style={{
+                      left: -offsetX,
+                      top: -offsetY,
+                      width: Math.max(item.width, 1),
+                      height: Math.max(item.height, 1)
+                    }}
                   >
                     <line
-                      x1={0}
-                      y1={item.height / 2 + 10}
-                      x2={item.width}
-                      y2={item.height / 2 + 10}
+                      x1={item.startPoint ? item.startPoint.x - item.x : 0}
+                      y1={item.startPoint ? item.startPoint.y - item.y : 0}
+                      x2={item.endPoint ? item.endPoint.x - item.x : item.width}
+                      y2={item.endPoint ? item.endPoint.y - item.y : 0}
                       stroke={item.stroke || '#6b7280'}
                       strokeWidth={item.strokeWidth || 2}
                       strokeLinecap="round"
@@ -1483,8 +1810,13 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                 {/* 箭头 */}
                 {item.type === 'arrow' && (
                   <svg
-                    className="absolute top-0 left-0 overflow-visible"
-                    style={{ width: item.width || 1, height: Math.max(item.height, 20) }}
+                    className="absolute overflow-visible pointer-events-none"
+                    style={{
+                      left: -offsetX,
+                      top: -offsetY,
+                      width: Math.max(item.width, 1),
+                      height: Math.max(item.height, 1)
+                    }}
                   >
                     <defs>
                       <marker
@@ -1502,10 +1834,10 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                       </marker>
                     </defs>
                     <line
-                      x1={0}
-                      y1={item.height / 2 + 10}
-                      x2={item.width - 5}
-                      y2={item.height / 2 + 10}
+                      x1={item.startPoint ? item.startPoint.x - item.x : 0}
+                      y1={item.startPoint ? item.startPoint.y - item.y : 0}
+                      x2={item.endPoint ? item.endPoint.x - item.x : item.width}
+                      y2={item.endPoint ? item.endPoint.y - item.y : 0}
                       stroke={item.stroke || '#6b7280'}
                       strokeWidth={item.strokeWidth || 2}
                       strokeLinecap="round"
@@ -1521,6 +1853,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                       onRemoveBg={() => handleContextAction('removeBg')}
                       onExpand={() => handleContextAction('expand')}
                       onEdit={(p) => handleContextAction('edit', p)}
+                      onInpaint={handleOpenInpaint}
                       onDelete={handleDelete}
                       onDownload={handleDownload}
                       isProcessing={isProcessing}
@@ -1548,6 +1881,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
               </div>
             );
           })}
+
 
           {/* 多选统一外框 */}
           {selectedIds.length > 1 && (() => {
@@ -1592,14 +1926,25 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                   className="absolute -bottom-2 -right-2 w-4 h-4 bg-white border-2 border-primary rounded-full shadow-md cursor-nwse-resize hover:scale-125 transition-transform"
                   onMouseDown={(e) => handleResizeStart(e, 'br')}
                 />
-                {/* 多选删除按钮 */}
+                {/* 多选工具栏 */}
                 {!isPanning && !isDragging && (
                   <div
                     style={{ transform: `scale(${1 / scale})`, transformOrigin: 'top center' }}
                     onMouseDown={(e) => e.stopPropagation()}
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <div className="absolute top-[-45px] left-1/2 -translate-x-1/2 z-50">
+                    <div className="absolute top-[-50px] left-1/2 -translate-x-1/2 z-50 flex items-center gap-2">
+                      {/* AI 融合按钮 */}
+                      <button
+                        onClick={handleAIFusion}
+                        className="px-3 py-2 bg-gradient-to-r from-violet-500 to-purple-600 rounded-lg shadow-lg text-white hover:from-violet-600 hover:to-purple-700 transition-all flex items-center gap-2 group"
+                        title="AI 融合 - 将选中元素作为参考生成新图像"
+                      >
+                        <Wand2 size={16} className="group-hover:rotate-12 transition-transform" />
+                        <span className="text-xs font-medium">AI 融合</span>
+                        <Sparkles size={12} className="opacity-70" />
+                      </button>
+                      {/* 删除按钮 */}
                       <button
                         onClick={handleDelete}
                         className="p-2 bg-white rounded-lg shadow-lg border border-gray-200 text-gray-600 hover:text-red-500 hover:bg-red-50 transition-colors flex items-center gap-1.5"
@@ -1614,6 +1959,51 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
               </div>
             );
           })()}
+
+          {/* AI 生成中 Loading 状态 - 在画布内渲染 */}
+          {isProcessing && loadingPosition && (
+            <div
+              className="absolute rounded-xl cursor-move bg-gray-50 border-2 border-dashed border-gray-300 z-50"
+              style={{
+                left: loadingPosition.x,
+                top: loadingPosition.y,
+                width: loadingPosition.width,
+                height: loadingPosition.height,
+              }}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                const startX = e.clientX;
+                const startY = e.clientY;
+                const startPosX = loadingPosition.x;
+                const startPosY = loadingPosition.y;
+
+                const handleMouseMove = (moveEvent: MouseEvent) => {
+                  const dx = (moveEvent.clientX - startX) / scale;
+                  const dy = (moveEvent.clientY - startY) / scale;
+                  const newPos = {
+                    ...loadingPosition,
+                    x: startPosX + dx,
+                    y: startPosY + dy,
+                  };
+                  setLoadingPosition(newPos);
+                  loadingPositionRef.current = newPos;
+                };
+
+                const handleMouseUp = () => {
+                  document.removeEventListener('mousemove', handleMouseMove);
+                  document.removeEventListener('mouseup', handleMouseUp);
+                };
+
+                document.addEventListener('mousemove', handleMouseMove);
+                document.addEventListener('mouseup', handleMouseUp);
+              }}
+            >
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+                <Loader2 className="w-8 h-8 text-gray-400 animate-spin" />
+                <p className="text-gray-500 text-sm font-medium">生成中...</p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 框选矩形 */}
@@ -1769,25 +2159,26 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                     </div>
                     <span className="text-xs font-semibold text-gray-700">分辨率</span>
                   </div>
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-5 gap-1.5">
                     {[
-                      { value: '512', label: '标清', sub: '512px' },
-                      { value: '768', label: '高清', sub: '768px' },
-                      { value: '1024', label: '1K', sub: '1024px' },
-                      { value: '1536', label: '2K', sub: '1536px' },
+                      { value: '720', label: '720p', sub: '极速' },
+                      { value: '1K', label: '1K', sub: '快速' },
+                      { value: '1080', label: '1080p', sub: '标准' },
+                      { value: '2K', label: '2K', sub: '高清' },
+                      { value: '4K', label: '4K', sub: '超清' },
                     ].map(r => (
                       <button
                         key={r.value}
                         onClick={() => setResolution(r.value)}
-                        className={`flex flex-col items-center p-2 rounded-xl transition-all ${resolution === r.value
+                        className={`flex flex-col items-center p-1.5 rounded-lg transition-all ${resolution === r.value
                           ? 'bg-primary/10 ring-2 ring-primary/30'
                           : 'bg-gray-50 hover:bg-gray-100'
                           }`}
                       >
-                        <span className={`text-xs font-semibold ${resolution === r.value ? 'text-primary' : 'text-gray-700'}`}>
+                        <span className={`text-[10px] font-semibold ${resolution === r.value ? 'text-primary' : 'text-gray-700'}`}>
                           {r.label}
                         </span>
-                        <span className={`text-[9px] ${resolution === r.value ? 'text-primary/70' : 'text-gray-400'}`}>
+                        <span className={`text-[8px] ${resolution === r.value ? 'text-primary/70' : 'text-gray-400'}`}>
                           {r.sub}
                         </span>
                       </button>
@@ -2005,56 +2396,146 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         </div>
       )}
 
-      {/* 场景详情弹窗 */}
-      {showSceneDetail && selectedSceneId && storyboard && (() => {
-        const selectedScene = storyboard.scenes.find(s => s.id === selectedSceneId);
-        if (!selectedScene) return null;
-        return (
-          <SceneDetailModal
-            scene={selectedScene}
-            onClose={() => setShowSceneDetail(false)}
-            onUpdate={handleSceneUpdate}
-            onDelete={() => {
-              handleSceneDelete(selectedScene.id);
-              setShowSceneDetail(false);
-            }}
-          />
-        );
-      })()}
-
-      {/* 图片选择器 */}
-      {showImagePicker && (
-        <ImagePicker
-          canvasItems={items}
-          onSelect={handleSelectCanvasImage}
-          onClose={() => {
-            setShowImagePicker(false);
-            setImagePickerSceneId(null);
-          }}
-        />
-      )}
-
       {/* Chatbot 面板 */}
       <ChatbotPanel
         isOpen={isChatOpen}
         onClose={() => setIsChatOpen(false)}
+        canvasItems={items}
+        selectedIds={selectedIds}
       />
 
-      {/* 全屏分镜编辑器弹窗 */}
-      {showStoryboard && (
-        <StoryboardEditor
-          scenes={currentStoryboard.scenes}
-          totalDuration={currentStoryboard.totalDuration}
-          onClose={() => setShowStoryboard(false)}
-          onSceneClick={handleSceneClick}
-          onSceneUpdate={handleSceneUpdate}
-          onSceneDelete={handleSceneDelete}
-          onAddScene={handleAddScene}
-          onOpenImagePicker={handleOpenImagePicker}
-          onImportScript={handleImportScript}
-          canvasItems={items}
+      {/* 图片擦除编辑器 */}
+      {inpaintingImage && (
+        <ImageMaskEditor
+          imageSrc={inpaintingImage.src}
+          onConfirm={handleInpaintConfirm}
+          onCancel={() => setInpaintingImage(null)}
         />
       )}
+
+      {/* AI 融合面板 */}
+      {showFusionPanel && fusionReferenceImage && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100]">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full mx-4 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* 头部 */}
+            <div className="bg-gradient-to-r from-violet-500 to-purple-600 px-6 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-3 text-white">
+                <div className="p-2 bg-white/20 rounded-lg">
+                  <Wand2 size={24} />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-lg">AI 融合创作</h3>
+                  <p className="text-sm text-white/80">基于选中元素生成新图像</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowFusionPanel(false);
+                  setFusionReferenceImage(null);
+                  setFusionPrompt('');
+                }}
+                className="p-2 hover:bg-white/20 rounded-lg transition-colors text-white"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* 内容区域 */}
+            <div className="p-6 space-y-6">
+              {/* 参考图预览 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  参考画面 <span className="text-gray-400 font-normal">（已选中元素的截图）</span>
+                </label>
+                <div className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-50">
+                  <img
+                    src={fusionReferenceImage}
+                    alt="参考图"
+                    className="w-full max-h-64 object-contain"
+                  />
+                  <div className="absolute bottom-2 right-2 px-2 py-1 bg-black/50 text-white text-xs rounded-md">
+                    {selectedIds.length} 个元素
+                  </div>
+                </div>
+              </div>
+
+              {/* 创意描述 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  创意描述 <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={fusionPrompt}
+                  onChange={(e) => setFusionPrompt(e.target.value)}
+                  placeholder="描述你想要的融合效果，例如：将这些元素融合成一幅赛博朋克风格的插画，保持原有的构图但增加霓虹灯效果..."
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none transition-all"
+                  rows={3}
+                  autoFocus
+                />
+              </div>
+
+              {/* 快捷提示词 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  风格参考
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    '保持原有构图',
+                    '融合成一体',
+                    '赛博朋克风格',
+                    '水彩画风格',
+                    '3D渲染效果',
+                    '增加光影效果',
+                    '复古胶片风',
+                    '极简线条',
+                  ].map((tag) => (
+                    <button
+                      key={tag}
+                      onClick={() => setFusionPrompt(prev => prev ? `${prev}，${tag}` : tag)}
+                      className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-violet-100 text-gray-600 hover:text-violet-700 rounded-full transition-colors"
+                    >
+                      + {tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* 底部操作栏 */}
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+              <p className="text-xs text-gray-400">
+                融合生成的图片将放置在选中区域右侧
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowFusionPanel(false);
+                    setFusionReferenceImage(null);
+                    setFusionPrompt('');
+                  }}
+                  className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={executeAIFusion}
+                  disabled={!fusionPrompt.trim()}
+                  className={`px-6 py-2 rounded-lg flex items-center gap-2 transition-all ${
+                    fusionPrompt.trim()
+                      ? 'bg-gradient-to-r from-violet-500 to-purple-600 text-white hover:from-violet-600 hover:to-purple-700 shadow-lg shadow-violet-500/25'
+                      : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                  }`}
+                >
+                  <Sparkles size={16} />
+                  开始融合
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
 
       <CanvasOnboarding
         onSelectTemplate={handleTemplateSelect}

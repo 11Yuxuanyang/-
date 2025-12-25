@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { CanvasItem, Project, Storyboard } from '@/types';
+import { CanvasItem, Project } from '@/types';
 import * as ProjectService from '@/services/projectService';
 
 export interface UseAutoSaveProps {
@@ -8,7 +8,6 @@ export interface UseAutoSaveProps {
   projectName: string;
   scale: number;
   pan: { x: number; y: number };
-  storyboard: Storyboard | null;
   debounceMs?: number;
 }
 
@@ -18,7 +17,6 @@ export function useAutoSave({
   projectName,
   scale,
   pan,
-  storyboard,
   debounceMs = 500,
 }: UseAutoSaveProps) {
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -32,12 +30,11 @@ export function useAutoSave({
       items,
       thumbnail: firstImage?.src,
       viewport: { scale, pan },
-      storyboard: storyboard || undefined,
       updatedAt: Date.now(),
     };
     ProjectService.saveProject(updatedProject);
     lastSaveRef.current = Date.now();
-  }, [project, items, projectName, scale, pan, storyboard]);
+  }, [project, items, projectName, scale, pan]);
 
   // Debounced auto-save
   useEffect(() => {
@@ -54,7 +51,7 @@ export function useAutoSave({
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [items, scale, pan, projectName, storyboard, save, debounceMs]);
+  }, [items, scale, pan, projectName, save, debounceMs]);
 
   // Save on unmount
   useEffect(() => {

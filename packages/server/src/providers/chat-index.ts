@@ -7,6 +7,7 @@ import { ChatProvider } from './chat-base.js';
 import { MockChatProvider } from './chat-mock.js';
 import { CustomChatProvider } from './chat-custom.js';
 import { DoubaoChatProvider } from './chat-doubao.js';
+import { OpenRouterChatProvider } from './chat-openrouter.js';
 
 type ChatProviderFactory = () => ChatProvider;
 
@@ -14,6 +15,7 @@ const chatProviders: Record<string, ChatProviderFactory> = {
   mock: () => new MockChatProvider(),
   custom: () => new CustomChatProvider(),
   doubao: () => new DoubaoChatProvider(),
+  openrouter: () => new OpenRouterChatProvider(),
 };
 
 let chatProviderInstance: ChatProvider | null = null;
@@ -44,6 +46,12 @@ export function getChatProvider(): ChatProvider {
       const hasDoubaoConfig = isValidApiKey(doubaoConfig.chatApiKey || doubaoConfig.apiKey);
       if (hasDoubaoConfig) {
         providerName = 'doubao';
+      }
+    } else if (defaultProvider === 'openrouter') {
+      // OpenRouter：检查 API key
+      const openrouterConfig = config.providers.openrouter;
+      if (isValidApiKey(openrouterConfig.apiKey)) {
+        providerName = 'openrouter';
       }
     } else if (defaultProvider === 'custom' || defaultProvider === 'openai') {
       // 自定义/OpenAI：检查旧配置

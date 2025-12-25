@@ -3,6 +3,7 @@ import {
   AIProvider,
   GenerateImageParams,
   EditImageParams,
+  InpaintImageParams,
   UpscaleImageParams,
 } from './base.js';
 
@@ -72,13 +73,44 @@ export class CustomProvider implements AIProvider {
   async editImage(params: EditImageParams): Promise<string> {
     const { image, prompt, model, options } = params;
 
-    // 移除 data URL 前缀
-    const base64Data = image.includes(',') ? image.split(',')[1] : image;
+    // 移除 data URL 前缀（支持单张或多张图）
+    const processImage = (img: string) => img.includes(',') ? img.split(',')[1] : img;
+    const base64Data = Array.isArray(image) ? image.map(processImage) : processImage(image);
 
     // TODO: 根据你的 API 格式调整请求体
     const result = await this.callAPI('/edit', {
       image: base64Data,
       prompt,
+      model: model || config.ai.defaultModel,
+      ...options,
+    });
+
+    const imageData = result.image || result.data?.image;
+
+    if (!imageData) {
+      throw new Error('API 未返回图片数据');
+    }
+
+    if (imageData.startsWith('data:')) {
+      return imageData;
+    }
+
+    return `data:image/png;base64,${imageData}`;
+  }
+
+  async inpaintImage(params: InpaintImageParams): Promise<string> {
+    const { image, mask, prompt, model, options } = params;
+
+    // 移除 data URL 前缀
+    const processImage = (img: string) => img.includes(',') ? img.split(',')[1] : img;
+    const imageBase64 = processImage(image);
+    const maskBase64 = processImage(mask);
+
+    // TODO: 根据你的 API 格式调整请求体
+    const result = await this.callAPI('/inpaint', {
+      image: imageBase64,
+      mask: maskBase64,
+      prompt: prompt || '智能填充擦除区域，保持图片整体风格一致',
       model: model || config.ai.defaultModel,
       ...options,
     });

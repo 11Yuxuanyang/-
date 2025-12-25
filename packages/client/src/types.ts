@@ -21,44 +21,9 @@ export interface CanvasItem {
   borderRadius?: number;
   // Brush-specific properties
   points?: { x: number; y: number }[];
-}
-
-// ============ Storyboard Types ============
-
-// 场景图片来源
-export type SceneImageSource = 'none' | 'canvas' | 'generated';
-
-// 场景状态
-export type SceneStatus = 'draft' | 'generating' | 'ready' | 'error';
-
-// 场景/镜头 - 剧本的基本单元
-export interface Scene {
-  id: string;
-  order: number;                    // 排序序号
-  title: string;                    // 镜头标题
-  description: string;              // 场景描述
-  dialogue: string;                 // 对白内容
-  visualPrompt: string;             // AI视觉提示词
-  duration: number;                 // 时长（秒）
-  startTime: number;                // 开始时间（秒）
-  imageSource: SceneImageSource;    // 图片来源
-  canvasItemId?: string;            // 关联的画布图片ID
-  generatedImageSrc?: string;       // 生成的图片base64
-  status: SceneStatus;              // 状态
-}
-
-// 剧本分镜集合
-export interface Storyboard {
-  id: string;
-  projectId: string;                // 关联的项目ID
-  title: string;                    // 剧本标题
-  rawScript: string;                // 原始剧本文本
-  scenes: Scene[];                  // 场景列表
-  totalDuration: number;            // 总时长（秒）
-  createdAt: number;
-  updatedAt: number;
-  timelineZoom: number;             // 时间轴缩放（px/秒）
-  timelineScrollPosition: number;   // 时间轴滚动位置
+  // Line/Arrow-specific properties
+  startPoint?: { x: number; y: number };
+  endPoint?: { x: number; y: number };
 }
 
 // ============ Project & App Types ============
@@ -74,7 +39,6 @@ export interface Project {
     scale: number;
     pan: { x: number; y: number };
   };
-  storyboard?: Storyboard; // 关联的剧本数据
 }
 
 export enum ToolMode {
@@ -97,6 +61,30 @@ export interface AppState {
   pan: { x: number; y: number };
   isGenerating: boolean;
   generatingMessage: string;
+}
+
+// ============ Canvas Context Types ============
+
+// 画布元素上下文（用于 AI 对话）
+export interface CanvasItemContext {
+  id: string;
+  type: 'image' | 'text' | 'rectangle' | 'circle' | 'brush' | 'line' | 'arrow';
+  position: { x: number; y: number };
+  size: { width: number; height: number };
+  // 图片专属
+  imageData?: string;  // base64
+  prompt?: string;     // 生成提示词
+  // 文字专属
+  textContent?: string;
+  // 形状专属
+  fill?: string;
+  stroke?: string;
+}
+
+// 画布上下文
+export interface CanvasContext {
+  items: CanvasItemContext[];
+  selectedIds: string[];
 }
 
 // ============ Chatbot Types ============

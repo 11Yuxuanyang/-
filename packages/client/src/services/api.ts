@@ -110,22 +110,41 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
 }
 
 /**
+ * 生成图片响应类型
+ */
+export interface GenerateImageResponse {
+  success: boolean;
+  imageUrl?: string;
+  error?: string;
+}
+
+/**
  * 生成图片（文生图）
+ * 支持可选的参考图进行融合生成
  */
 export async function generateImage(params: {
   prompt: string;
   model?: string;
   aspectRatio?: string;
-  size?: '1K' | '2K' | '4K';  // 图片尺寸
+  size?: string;  // 图片尺寸
   watermark?: boolean;        // 是否添加水印
-}): Promise<string> {
-  const { image } = await request<{ image: string }>('/ai/generate', {
-    method: 'POST',
-    body: JSON.stringify(params),
-    timeout: 60000, // AI 生成需要更长时间
-    retries: 1,
-  });
-  return image;
+  referenceImage?: string;    // 参考图（base64）用于 AI 融合
+}): Promise<GenerateImageResponse> {
+  try {
+    const { image } = await request<{ image: string }>('/ai/generate', {
+      method: 'POST',
+      body: JSON.stringify(params),
+      timeout: 120000, // AI 生成需要更长时间，融合可能更久
+      retries: 1,
+    });
+    return { success: true, imageUrl: image };
+  } catch (error) {
+    console.error('生成图片失败:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : '生成失败'
+    };
+  }
 }
 
 /**
@@ -138,6 +157,24 @@ export async function editImage(params: {
   model?: string;
 }): Promise<string> {
   const { image } = await request<{ image: string }>('/ai/edit', {
+    method: 'POST',
+    body: JSON.stringify(params),
+    timeout: 60000,
+    retries: 1,
+  });
+  return image;
+}
+
+/**
+ * 图片修复/擦除（Inpainting）
+ * 使用遮罩指定要擦除的区域
+ */
+export async function inpaintImage(params: {
+  image: string;  // 原始图片
+  mask: string;   // 遮罩图片（白色区域表示要擦除的区域）
+  prompt?: string; // 可选提示词
+}): Promise<string> {
+  const { image } = await request<{ image: string }>('/ai/inpaint', {
     method: 'POST',
     body: JSON.stringify(params),
     timeout: 60000,
@@ -186,16 +223,35 @@ export async function healthCheck(): Promise<boolean> {
 
 export interface ChatMessageInput {
   role: 'user' | 'assistant' | 'system';
-  content: string;
+  content: string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }>;
   attachments?: Array<{
     type: string;
     content: string;
   }>;
 }
 
+// 画布元素上下文（用于 AI 对话）
+export interface CanvasItemContext {
+  id: string;
+  type: 'image' | 'text' | 'rectangle' | 'circle' | 'brush' | 'line' | 'arrow';
+  position: { x: number; y: number };
+  size: { width: number; height: number };
+  imageData?: string;  // base64
+  prompt?: string;
+  textContent?: string;
+  fill?: string;
+  stroke?: string;
+}
+
+export interface CanvasContext {
+  items: CanvasItemContext[];
+  selectedIds: string[];
+}
+
 export interface ChatParams {
   messages: ChatMessageInput[];
   webSearchEnabled?: boolean;
+  canvasContext?: CanvasContext;
 }
 
 /**
