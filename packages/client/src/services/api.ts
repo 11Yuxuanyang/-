@@ -110,12 +110,14 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
 }
 
 /**
- * 生成图片
+ * 生成图片（文生图）
  */
 export async function generateImage(params: {
   prompt: string;
   model?: string;
   aspectRatio?: string;
+  size?: '1K' | '2K' | '4K';  // 图片尺寸
+  watermark?: boolean;        // 是否添加水印
 }): Promise<string> {
   const { image } = await request<{ image: string }>('/ai/generate', {
     method: 'POST',
@@ -127,10 +129,11 @@ export async function generateImage(params: {
 }
 
 /**
- * 编辑图片
+ * 编辑图片（图生图）
+ * 支持单张或多张参考图
  */
 export async function editImage(params: {
-  image: string;
+  image: string | string[];  // 支持单张或多张参考图
   prompt: string;
   model?: string;
 }): Promise<string> {

@@ -15,8 +15,13 @@ const SENSITIVE_PATTERNS = [
   /password/i,
   /token/i,
   /bearer\s+\S+/i,
-  /sk-[a-zA-Z0-9]+/i,  // OpenAI 密钥格式
+  /sk-[a-zA-Z0-9]+/i,           // OpenAI 密钥格式
   /authorization:\s*\S+/i,
+  /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/gi,  // UUID 格式密钥（如豆包）
+  /AKLT[a-zA-Z0-9]{40,}/i,      // 火山引擎 TOS Access Key
+  /[A-Za-z0-9+/]{40,}={0,2}/,   // Base64 编码的密钥（长度>=40）
+  /secret[_-]?key/i,
+  /access[_-]?key/i,
 ];
 
 /**

@@ -9,11 +9,13 @@ export interface GenerateImageParams {
   prompt: string;
   model?: string;
   aspectRatio?: string;
+  size?: string;        // 尺寸: '1K' | '2K' | '4K'
+  watermark?: boolean;  // 是否添加水印
   options?: Record<string, any>;
 }
 
 export interface EditImageParams {
-  image: string;  // base64
+  image: string | string[];  // 支持单张或多张参考图 (base64 或 URL)
   prompt: string;
   model?: string;
   options?: Record<string, any>;

@@ -67,13 +67,30 @@ app.use('/api/ai', aiLimiter, aiRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/chat', chatRouter);
 
-// 健康检查
+// 健康检查（生产环境简化输出，避免信息泄露）
 app.get('/api/health', (_req, res) => {
+  const isDev = config.nodeEnv === 'development';
+
+  // 生产环境只返回基本状态
+  if (!isDev) {
+    return res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  // 开发环境返回详细信息
+  const memoryUsage = process.memoryUsage();
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    environment: process.env.NODE_ENV || 'development',
+    environment: config.nodeEnv,
+    memory: {
+      rss: `${Math.round(memoryUsage.rss / 1024 / 1024)}MB`,
+      heapUsed: `${Math.round(memoryUsage.heapUsed / 1024 / 1024)}MB`,
+      heapTotal: `${Math.round(memoryUsage.heapTotal / 1024 / 1024)}MB`,
+    },
   });
 });
 
@@ -93,10 +110,92 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 // 启动服务器
-app.listen(config.port, () => {
-  console.log(`🚀 服务器运行在 http://localhost:${config.port}`);
-  console.log(`🔒 安全中间件已启用: helmet, rate-limit`);
+const server = app.listen(config.port, () => {
+  console.log('\n========================================');
+  console.log(`🚀 CanvasAI Studio 后端服务已启动`);
+  console.log(`📍 地址: http://localhost:${config.port}`);
+  console.log(`🌍 环境: ${config.nodeEnv}`);
+  console.log(`🔒 安全: helmet + rate-limit 已启用`);
+  console.log(`⏰ 启动时间: ${new Date().toLocaleString('zh-CN')}`);
+  console.log('========================================\n');
 
-  // 打印 AI 提供商配置状态
   logProviderStatus();
+
+  console.log('\n💡 提示: 按 Ctrl+C 优雅停止服务器\n');
+});
+
+// 端口占用错误处理
+server.on('error', (error: NodeJS.ErrnoException) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`\n❌ 错误: 端口 ${config.port} 已被占用`);
+    console.error('\n💡 解决方案:');
+    console.error(`   1. 停止占用端口的程序`);
+    console.error(`   2. 修改 .env 文件中的 PORT 配置`);
+
+    if (process.platform === 'win32') {
+      console.error(`   3. 使用命令查找进程: netstat -ano | findstr :${config.port}`);
+      console.error(`   4. 使用命令结束进程: taskkill /PID <进程ID> /F`);
+    } else {
+      console.error(`   3. 使用命令查找进程: lsof -i :${config.port}`);
+      console.error(`   4. 使用命令结束进程: kill -9 <进程ID>`);
+    }
+
+    process.exit(1);
+  } else if (error.code === 'EACCES') {
+    console.error(`\n❌ 错误: 没有权限监听端口 ${config.port}`);
+    console.error('💡 提示: 端口 1-1024 需要管理员权限，请使用更大的端口号');
+    process.exit(1);
+  } else {
+    console.error('\n❌ 服务器启动失败:', error);
+    process.exit(1);
+  }
+});
+
+// 优雅关闭处理
+let isShuttingDown = false;
+
+const gracefulShutdown = (signal: string) => {
+  if (isShuttingDown) {
+    console.log('⏳ 正在关闭中，请稍候...');
+    return;
+  }
+
+  isShuttingDown = true;
+  console.log(`\n🛑 收到 ${signal} 信号，开始优雅关闭...`);
+
+  server.close((err) => {
+    if (err) {
+      console.error('❌ 关闭服务器时出错:', err);
+      process.exit(1);
+    }
+
+    console.log('✅ 服务器已安全关闭');
+    process.exit(0);
+  });
+
+  // 设置强制退出超时（10秒）
+  setTimeout(() => {
+    console.error('⚠️  强制退出（超时）');
+    process.exit(1);
+  }, 10000);
+};
+
+// 监听终止信号
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Windows 特定信号
+if (process.platform === 'win32') {
+  process.on('SIGBREAK', () => gracefulShutdown('SIGBREAK'));
+}
+
+// 捕获未处理的错误
+process.on('uncaughtException', (error) => {
+  console.error('❌ 未捕获的异常:', error);
+  gracefulShutdown('uncaughtException');
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('❌ 未处理的 Promise 拒绝:', reason);
+  gracefulShutdown('unhandledRejection');
 });

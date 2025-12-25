@@ -17,7 +17,7 @@ export const LIMITS = {
   // 支持的提供商列表
   SUPPORTED_PROVIDERS: ['openai', 'doubao', 'qwen', 'custom'] as const,
   // 支持的宽高比
-  SUPPORTED_ASPECT_RATIOS: ['1:1', '16:9', '9:16', '4:3', '3:4'] as const,
+  SUPPORTED_ASPECT_RATIOS: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '21:9'] as const,
 };
 
 /**
@@ -98,18 +98,24 @@ export const schemas = {
     model: z.string().optional(),
     aspectRatio: z.enum(LIMITS.SUPPORTED_ASPECT_RATIOS).optional().default('1:1'),
     resolution: z.string().optional(),
-    provider: providerSchema, // 新增：指定提供商
+    size: z.enum(['1K', '2K', '4K']).optional(),  // 新增：图片尺寸
+    watermark: z.boolean().optional(),             // 新增：是否添加水印
+    provider: providerSchema,
   }),
 
   /**
    * AI 图像编辑请求
    * POST /api/ai/edit
+   * 支持单张或多张参考图
    */
   editImage: z.object({
     prompt: z.string()
       .min(1, '提示词不能为空')
       .max(LIMITS.MAX_PROMPT_LENGTH, '提示词过长'),
-    image: base64ImageSchema, // 使用增强的图片验证
+    image: z.union([
+      base64ImageSchema,                          // 单张图片
+      z.array(base64ImageSchema).min(1).max(5),   // 多张参考图（最多5张）
+    ]),
     model: z.string().optional(),
     provider: providerSchema,
   }),

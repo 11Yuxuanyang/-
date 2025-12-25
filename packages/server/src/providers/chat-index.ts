@@ -6,12 +6,14 @@ import { config } from '../config.js';
 import { ChatProvider } from './chat-base.js';
 import { MockChatProvider } from './chat-mock.js';
 import { CustomChatProvider } from './chat-custom.js';
+import { DoubaoChatProvider } from './chat-doubao.js';
 
 type ChatProviderFactory = () => ChatProvider;
 
 const chatProviders: Record<string, ChatProviderFactory> = {
   mock: () => new MockChatProvider(),
   custom: () => new CustomChatProvider(),
+  doubao: () => new DoubaoChatProvider(),
 };
 
 let chatProviderInstance: ChatProvider | null = null;
@@ -27,18 +29,35 @@ function isValidApiKey(apiKey: string): boolean {
 
 /**
  * 获取 Chat Provider 实例
- * 如果没有配置有效的 API key，默认使用 mock provider
+ * 优先使用 defaultChatProvider 配置，如果没有有效配置则降级到 mock
  */
 export function getChatProvider(): ChatProvider {
   if (!chatProviderInstance) {
-    // 如果没有配置有效的 API key 或 URL，使用 mock provider
-    const hasValidConfig = isValidApiKey(config.ai.apiKey) &&
-                          config.ai.apiBaseUrl &&
-                          !config.ai.apiBaseUrl.includes('example.com');
-    const providerName = hasValidConfig ? config.ai.provider : 'mock';
+    const defaultProvider = config.defaultChatProvider;
+
+    // 检查是否有对应的提供商配置
+    let providerName = 'mock';
+
+    if (defaultProvider === 'doubao') {
+      // 豆包：检查聊天专用 key 或通用 key
+      const doubaoConfig = config.providers.doubao;
+      const hasDoubaoConfig = isValidApiKey(doubaoConfig.chatApiKey || doubaoConfig.apiKey);
+      if (hasDoubaoConfig) {
+        providerName = 'doubao';
+      }
+    } else if (defaultProvider === 'custom' || defaultProvider === 'openai') {
+      // 自定义/OpenAI：检查旧配置
+      const hasValidConfig = isValidApiKey(config.ai.apiKey) &&
+                            config.ai.apiBaseUrl &&
+                            !config.ai.apiBaseUrl.includes('example.com');
+      if (hasValidConfig) {
+        providerName = 'custom';
+      }
+    }
+
     const factory = chatProviders[providerName] || chatProviders['mock'];
     chatProviderInstance = factory();
-    console.log(`[Chat] Using provider: ${chatProviderInstance.name}`);
+    console.log(`[Chat] 已加载提供商: ${chatProviderInstance.name}`);
   }
   return chatProviderInstance;
 }

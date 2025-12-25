@@ -377,14 +377,35 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
     setIsProcessing(true);
-    try {
-      const base64Image = await API.generateImage({
-        prompt,
-        aspectRatio,
-      });
 
+    try {
+      // 获取所有选中的图片（支持多参考图）
+      const selectedImages = selectedIds.length > 0
+        ? items.filter(item => selectedIds.includes(item.id) && item.type === 'image')
+        : [];
+
+      let newImageSrc: string;
+
+      if (selectedImages.length > 0) {
+        // 图生图模式：支持单张或多张参考图
+        const imageSources = selectedImages.map(img => img.src);
+
+        newImageSrc = await API.editImage({
+          // 单张图传字符串，多张图传数组
+          image: imageSources.length === 1 ? imageSources[0] : imageSources,
+          prompt,
+        });
+      } else {
+        // 文生图模式
+        newImageSrc = await API.generateImage({
+          prompt,
+          aspectRatio,
+        });
+      }
+
+      // 统一处理：创建新图片添加到画布（不替换任何原图）
       const img = new window.Image();
-      img.src = base64Image;
+      img.src = newImageSrc;
       img.onload = () => {
         // 根据宽高比计算显示尺寸
         const displaySize = 400;
@@ -396,7 +417,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         const newItem: CanvasItem = {
           id: generateId(),
           type: 'image',
-          src: base64Image,
+          src: newImageSrc,
           x: -pan.x + (window.innerWidth / 2) - width / 2,
           y: -pan.y + (window.innerHeight / 2) - height / 2,
           width,
@@ -407,10 +428,11 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         setItems(prev => [...prev, newItem]);
         setSelectedIds([newItem.id]);
         setPrompt("");
-      }
+      };
+
     } catch (error) {
       console.error(error);
-      alert("生成失败，请检查后端服务是否正常运行。");
+      alert("处理失败，请检查后端服务是否正常运行。");
     } finally {
       setIsProcessing(false);
     }
@@ -559,7 +581,28 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
     });
 
     if (clickedItem) {
-      setSelectedIds([clickedItem.id]);
+      // 图片类型：点击累加/取消选择（用于多参考图模式）
+      if (clickedItem.type === 'image') {
+        setSelectedIds(prev => {
+          if (prev.includes(clickedItem.id)) {
+            // 已选中：取消选择
+            return prev.filter(id => id !== clickedItem.id);
+          } else {
+            // 未选中：添加到选择列表（最多5张）
+            if (prev.filter(id => items.find(item => item.id === id && item.type === 'image')).length >= 5) {
+              // 已达到上限，替换最早选中的
+              const imageIds = prev.filter(id => items.find(item => item.id === id && item.type === 'image'));
+              const nonImageIds = prev.filter(id => !items.find(item => item.id === id && item.type === 'image'));
+              return [...nonImageIds, ...imageIds.slice(1), clickedItem.id];
+            }
+            return [...prev, clickedItem.id];
+          }
+        });
+      } else {
+        // 非图片元素：普通单选模式
+        setSelectedIds([clickedItem.id]);
+      }
+
       if (toolMode === ToolMode.SELECT) {
         setIsDragging(true);
         setDragStart({ x: e.clientX, y: e.clientY });
@@ -1304,16 +1347,27 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                 )}
                 {/* 图片 */}
                 {item.type === 'image' && (
-                  <img
-                    src={item.src}
-                    alt="canvas item"
-                    className="w-full h-full object-cover rounded-lg shadow-lg cursor-pointer"
-                    draggable={false}
-                    onDoubleClick={(e) => {
-                      e.stopPropagation();
-                      startCropping(item.id);
-                    }}
-                  />
+                  <>
+                    <img
+                      src={item.src}
+                      alt="canvas item"
+                      className="w-full h-full object-cover rounded-lg shadow-lg cursor-pointer"
+                      draggable={false}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        startCropping(item.id);
+                      }}
+                    />
+                    {/* 多图选中时显示序号 */}
+                    {isSelected && selectedIds.filter(id => items.find(i => i.id === id && i.type === 'image')).length > 1 && (
+                      <div
+                        className="absolute top-2 left-2 bg-violet-500 text-white text-sm font-bold rounded-full w-7 h-7 flex items-center justify-center shadow-lg pointer-events-none"
+                        style={{ transform: `scale(${1 / scale})`, transformOrigin: 'top left' }}
+                      >
+                        {selectedIds.filter(id => items.find(i => i.id === id && i.type === 'image')).indexOf(item.id) + 1}
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {/* 文字 */}
@@ -1777,21 +1831,36 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
 
             {/* 输入框 */}
             <div className="flex-1 bg-white p-3 rounded-3xl shadow-float border border-gray-200 transition-all duration-300 ease-out hover:shadow-lg ring-1 ring-transparent focus-within:ring-violet-200">
-              {/* 选中图片预览 */}
+              {/* 选中图片预览（多参考图模式） */}
               {selectedIds.length > 0 && (() => {
                 const selectedImages = items.filter(item => selectedIds.includes(item.id) && item.type === 'image');
                 if (selectedImages.length === 0) return null;
                 return (
-                  <div className="flex gap-2 mb-3 px-1 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                  <div className="flex flex-wrap items-center gap-2 mb-3 px-1 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                    {/* 图片预览列表 */}
                     {selectedImages.map((img, index) => (
                       <div
                         key={img.id}
-                        className="relative w-10 h-10 rounded-lg overflow-hidden shadow-sm border border-gray-100 animate-in zoom-in-75 fade-in duration-200"
+                        className="relative w-12 h-12 rounded-lg overflow-hidden shadow-sm border-2 border-violet-300 animate-in zoom-in-75 fade-in duration-200 cursor-pointer group hover:border-violet-400 transition-colors"
                         style={{ animationDelay: `${index * 50}ms` }}
+                        onClick={() => setSelectedIds(prev => prev.filter(id => id !== img.id))}
+                        title="点击移除"
                       >
                         <img src={img.src} alt="" className="w-full h-full object-cover" />
+                        {/* 序号标识 */}
+                        <div className="absolute top-0.5 left-0.5 bg-violet-500 text-white text-[10px] font-medium rounded-full w-4 h-4 flex items-center justify-center shadow">
+                          {index + 1}
+                        </div>
+                        {/* 移除按钮（hover 时显示） */}
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <X className="w-4 h-4 text-white" />
+                        </div>
                       </div>
                     ))}
+                    {/* 选中数量提示 */}
+                    <span className="text-xs text-gray-500 ml-1">
+                      已选 {selectedImages.length}/5 张参考图
+                    </span>
                   </div>
                 );
               })()}

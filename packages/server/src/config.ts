@@ -5,6 +5,7 @@ import 'dotenv/config';
  */
 export interface ProviderConfig {
   apiKey: string;
+  chatApiKey?: string;  // 聊天专用 API Key（可选，不设置则使用 apiKey）
   baseUrl: string;
   imageModel: string;
   chatModel: string;
@@ -32,6 +33,7 @@ export const config = {
     // 豆包 (火山引擎) 配置
     doubao: {
       apiKey: process.env.DOUBAO_API_KEY || '',
+      chatApiKey: process.env.DOUBAO_CHAT_API_KEY || '',  // 聊天专用 API Key
       baseUrl: process.env.DOUBAO_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3',
       imageModel: process.env.DOUBAO_IMAGE_MODEL || '',
       chatModel: process.env.DOUBAO_CHAT_MODEL || '',
@@ -87,3 +89,57 @@ export const config = {
 export function getProviderConfig(name: string): ProviderConfig | undefined {
   return config.providers[name as keyof typeof config.providers];
 }
+
+/**
+ * 配置验证函数
+ */
+function validateConfig() {
+  const errors: string[] = [];
+
+  // 验证端口
+  if (config.port < 1 || config.port > 65535) {
+    errors.push(`无效的端口号: ${config.port} (必须在 1-65535 之间)`);
+  }
+
+  if (config.port < 1024 && process.platform !== 'win32') {
+    console.warn(`⚠️  警告: 端口 ${config.port} < 1024 可能需要管理员权限`);
+  }
+
+  // 验证 AI 提供商配置
+  const imageProvider = config.defaultImageProvider;
+  const chatProvider = config.defaultChatProvider;
+
+  const imageConfig = config.providers[imageProvider as keyof typeof config.providers];
+  const chatConfig = config.providers[chatProvider as keyof typeof config.providers];
+
+  if (!imageConfig || !imageConfig.apiKey) {
+    console.warn(`⚠️  警告: 默认图片提供商 "${imageProvider}" 未配置 API 密钥`);
+  }
+
+  if (!chatConfig || !chatConfig.apiKey) {
+    console.warn(`⚠️  警告: 默认对话提供商 "${chatProvider}" 未配置 API 密钥`);
+  }
+
+  // 生产环境安全检查
+  if (config.nodeEnv === 'production') {
+    // JWT 密钥必须修改
+    if (config.jwt.secret.includes('change-in-production') || config.jwt.secret.length < 32) {
+      errors.push('生产环境必须设置强 JWT_SECRET（至少 32 字符）');
+    }
+
+    // CORS 不应该是 localhost
+    if (config.corsOrigin.includes('localhost')) {
+      console.warn('⚠️  警告: 生产环境 CORS_ORIGIN 不应该包含 localhost');
+    }
+  }
+
+  if (errors.length > 0) {
+    console.error('\n❌ 配置错误:');
+    errors.forEach(err => console.error(`   - ${err}`));
+    console.error('\n💡 请检查 packages/server/.env 文件\n');
+    process.exit(1);
+  }
+}
+
+// 启动时验证配置
+validateConfig();

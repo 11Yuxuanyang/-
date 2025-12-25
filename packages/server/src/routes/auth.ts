@@ -3,6 +3,12 @@ import { config } from '../config.js';
 
 export const authRouter = Router();
 
+// 手机号脱敏（只显示前3位和后4位）
+function maskPhone(phone: string): string {
+  if (!phone || phone.length < 7) return '***';
+  return phone.slice(0, 3) + '****' + phone.slice(-4);
+}
+
 // 存储登录状态（生产环境应使用 Redis）
 const loginStates = new Map<string, {
   status: 'pending' | 'scanned' | 'confirmed' | 'expired';
@@ -333,8 +339,8 @@ authRouter.post('/phone/send-code', (req: Request, res: Response) => {
   });
 
   // TODO: 实际项目中需要调用短信服务发送验证码
-  // 这里仅打印到控制台用于测试
-  console.log(`[SMS] 发送验证码到 ${phone}: ${code}`);
+  // 日志脱敏：不输出完整手机号和验证码
+  console.log(`[SMS] 发送验证码到 ${maskPhone(phone)}`);
 
   res.json({
     success: true,
@@ -419,9 +425,9 @@ authRouter.post('/phone/verify', (req: Request, res: Response) => {
       createdAt: Date.now(),
     };
     phoneUsers.set(phone, user);
-    console.log(`[Auth] 新用户注册: ${phone}`);
+    console.log(`[Auth] 新用户注册: ${maskPhone(phone)}`);
   } else {
-    console.log(`[Auth] 用户登录: ${phone}`);
+    console.log(`[Auth] 用户登录: ${maskPhone(phone)}`);
   }
 
   res.json({
