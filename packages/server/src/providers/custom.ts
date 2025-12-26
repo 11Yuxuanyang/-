@@ -43,13 +43,14 @@ export class CustomProvider implements AIProvider {
   }
 
   async generateImage(params: GenerateImageParams): Promise<string> {
-    const { prompt, model, aspectRatio, options } = params;
+    const { prompt, model, aspectRatio, size, options } = params;
 
     // TODO: 根据你的 API 格式调整请求体
     const result = await this.callAPI('/generate', {
       prompt,
       model: model || config.ai.defaultModel,
       aspect_ratio: aspectRatio || '1:1',
+      size: size,  // 图片尺寸（1K/2K/4K 等）
       ...options,
     });
 

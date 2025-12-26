@@ -8,22 +8,22 @@ interface MessageListProps {
   onQuickPrompt?: (prompt: string) => void;
 }
 
-// 快捷提示分组
+// 快捷提示分组 - 贴合画布产品
 const quickPromptGroups = [
   [
-    '你能为我做什么？',
-    '帮我写一个剧本大纲',
-    '创作一个科幻故事',
+    '画布上这几张图能怎么玩？',
+    '帮我想个脑洞大开的画面',
+    '给选中的图来点创意建议',
   ],
   [
-    '设计一个电影场景',
-    '写一段感人的对白',
-    '创建角色人物设定',
+    '这个配色太普通了，换个风格',
+    '把这几张图融合成一个故事',
+    '三傻你觉得这构图行不行？',
   ],
   [
-    '分析一个经典剧本',
-    '帮我改进故事情节',
-    '创作一首诗歌',
+    '灵感枯竭了，救救我',
+    '选中的图怎么改更有冲击力？',
+    '帮我写段图片描述词',
   ],
 ];
 
@@ -48,13 +48,11 @@ export const MessageList: React.FC<MessageListProps> = ({ messages, onQuickPromp
       <div className="flex-1 flex flex-col px-6 py-8 overflow-y-auto">
         {/* Welcome Section */}
         <div className="mb-8">
-          <h1 className="text-3xl font-semibold mb-2">
-            <span className="bg-gradient-to-r from-violet-600 via-purple-500 to-fuchsia-500 bg-clip-text text-transparent">
-              又来找我了？
-            </span>
+          <h1 className="text-2xl font-semibold mb-2 text-violet-600">
+            嘿，灵感来了吗？
           </h1>
-          <p className="text-xl text-gray-400">
-            说吧，这次想写点什么~
+          <p className="text-base text-gray-400">
+            选几张图、聊聊想法，三傻帮你搞定
           </p>
         </div>
 

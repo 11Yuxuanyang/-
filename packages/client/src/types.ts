@@ -1,6 +1,6 @@
 export interface CanvasItem {
   id: string;
-  type: 'image' | 'text' | 'rectangle' | 'circle' | 'brush' | 'line' | 'arrow';
+  type: 'image' | 'text' | 'rectangle' | 'circle' | 'brush' | 'line' | 'arrow' | 'connection';
   src: string; // Base64 data URL for images, text content for text, empty for shapes
   x: number;
   y: number;
@@ -8,6 +8,12 @@ export interface CanvasItem {
   height: number;
   zIndex: number;
   prompt?: string; // The prompt used to generate it
+  // 裁剪相关 - 保存原始图片信息用于还原
+  originalSrc?: string;
+  originalWidth?: number;
+  originalHeight?: number;
+  cropX?: number;  // 裁剪位置
+  cropY?: number;
   // Text-specific properties
   fontSize?: number;
   fontFamily?: string;
@@ -24,6 +30,9 @@ export interface CanvasItem {
   // Line/Arrow-specific properties
   startPoint?: { x: number; y: number };
   endPoint?: { x: number; y: number };
+  // Connection-specific properties (溯源连接线)
+  sourceItemId?: string;  // 起点元素 ID
+  targetItemId?: string;  // 终点元素 ID
 }
 
 // ============ Project & App Types ============
@@ -68,7 +77,7 @@ export interface AppState {
 // 画布元素上下文（用于 AI 对话）
 export interface CanvasItemContext {
   id: string;
-  type: 'image' | 'text' | 'rectangle' | 'circle' | 'brush' | 'line' | 'arrow';
+  type: 'image' | 'text' | 'rectangle' | 'circle' | 'brush' | 'line' | 'arrow' | 'connection';
   position: { x: number; y: number };
   size: { width: number; height: number };
   // 图片专属

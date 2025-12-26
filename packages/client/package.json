@@ -19,7 +19,10 @@
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.0",
     "remark-gfm": "^4.0.1",
-    "tailwind-merge": "^3.4.0"
+    "socket.io-client": "^4.8.3",
+    "tailwind-merge": "^3.4.0",
+    "y-websocket": "^3.0.0",
+    "yjs": "^13.6.28"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.18",

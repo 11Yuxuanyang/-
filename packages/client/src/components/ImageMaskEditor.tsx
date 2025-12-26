@@ -8,7 +8,8 @@ import { X, Undo2, Redo2 } from 'lucide-react';
 
 interface ImageMaskEditorProps {
   imageSrc: string;
-  onConfirm: (maskDataUrl: string) => void;
+  mode: 'erase' | 'repaint';  // 擦除 或 局部重绘
+  onConfirm: (maskDataUrl: string, prompt?: string) => void;
   onCancel: () => void;
 }
 
@@ -16,10 +17,11 @@ interface HistoryState {
   imageData: ImageData;
 }
 
-export function ImageMaskEditor({ imageSrc, onConfirm, onCancel }: ImageMaskEditorProps) {
+export function ImageMaskEditor({ imageSrc, mode, onConfirm, onCancel }: ImageMaskEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const [isDrawing, setIsDrawing] = useState(false);
   const [brushSize, setBrushSize] = useState(30);
@@ -31,6 +33,11 @@ export function ImageMaskEditor({ imageSrc, onConfirm, onCancel }: ImageMaskEdit
   const [history, setHistory] = useState<HistoryState[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [hasMask, setHasMask] = useState(false);
+
+  // 局部重绘输入框
+  const [repaintPrompt, setRepaintPrompt] = useState('');
+  const [inputPosition, setInputPosition] = useState({ x: 0, y: 0 });
+  const [maskBounds, setMaskBounds] = useState<{ minX: number; minY: number; maxX: number; maxY: number } | null>(null);
 
   // 加载图片
   useEffect(() => {
@@ -113,8 +120,11 @@ export function ImageMaskEditor({ imageSrc, onConfirm, onCancel }: ImageMaskEdit
     };
   }, [imageSize]);
 
-  // 绘制画笔
-  const drawBrush = useCallback((x: number, y: number) => {
+  // 上一个绘制点
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+
+  // 绘制画笔（连续线条）
+  const drawBrush = useCallback((x: number, y: number, isStart: boolean = false) => {
     const maskCanvas = maskCanvasRef.current;
     if (!maskCanvas) return;
 
@@ -126,11 +136,26 @@ export function ImageMaskEditor({ imageSrc, onConfirm, onCancel }: ImageMaskEdit
     const actualBrushSize = brushSize * scaleRatio;
 
     ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = 'rgba(59, 130, 246, 0.5)'; // 半透明蓝色
-    ctx.beginPath();
-    ctx.arc(x, y, actualBrushSize / 2, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.strokeStyle = 'rgba(59, 130, 246, 0.5)'; // 半透明蓝色
+    ctx.fillStyle = 'rgba(59, 130, 246, 0.5)';
+    ctx.lineWidth = actualBrushSize;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
 
+    if (isStart || !lastPointRef.current) {
+      // 起始点画一个圆
+      ctx.beginPath();
+      ctx.arc(x, y, actualBrushSize / 2, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // 连续绘制线条
+      ctx.beginPath();
+      ctx.moveTo(lastPointRef.current.x, lastPointRef.current.y);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    }
+
+    lastPointRef.current = { x, y };
     setHasMask(true);
   }, [brushSize, imageSize, displaySize]);
 
@@ -156,23 +181,82 @@ export function ImageMaskEditor({ imageSrc, onConfirm, onCancel }: ImageMaskEdit
   const handleStart = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();
     setIsDrawing(true);
+    lastPointRef.current = null; // 重置上一个点
     const coords = getCanvasCoords(e);
-    drawBrush(coords.x, coords.y);
+    drawBrush(coords.x, coords.y, true); // isStart = true
   }, [getCanvasCoords, drawBrush]);
 
   const handleMove = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     if (!isDrawing) return;
     e.preventDefault();
     const coords = getCanvasCoords(e);
-    drawBrush(coords.x, coords.y);
+    drawBrush(coords.x, coords.y, false);
   }, [isDrawing, getCanvasCoords, drawBrush]);
+
+  // 计算遮罩边界（用于定位输入框）
+  const calculateMaskBounds = useCallback(() => {
+    const maskCanvas = maskCanvasRef.current;
+    if (!maskCanvas) return null;
+
+    const ctx = maskCanvas.getContext('2d');
+    if (!ctx) return null;
+
+    const imageData = ctx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+    const data = imageData.data;
+
+    let minX = maskCanvas.width;
+    let minY = maskCanvas.height;
+    let maxX = 0;
+    let maxY = 0;
+    let hasPixels = false;
+
+    for (let y = 0; y < maskCanvas.height; y++) {
+      for (let x = 0; x < maskCanvas.width; x++) {
+        const i = (y * maskCanvas.width + x) * 4;
+        if (data[i + 3] > 0) {
+          hasPixels = true;
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x);
+          maxY = Math.max(maxY, y);
+        }
+      }
+    }
+
+    if (!hasPixels) return null;
+
+    // 转换为显示坐标
+    const scaleRatio = displaySize.width / imageSize.width;
+    return {
+      minX: minX * scaleRatio,
+      minY: minY * scaleRatio,
+      maxX: maxX * scaleRatio,
+      maxY: maxY * scaleRatio,
+    };
+  }, [displaySize, imageSize]);
 
   const handleEnd = useCallback(() => {
     if (isDrawing) {
       setIsDrawing(false);
+      lastPointRef.current = null; // 清除上一个点
       saveHistoryState();
+
+      // 局部重绘模式下计算输入框位置
+      if (mode === 'repaint') {
+        const bounds = calculateMaskBounds();
+        if (bounds) {
+          setMaskBounds(bounds);
+          // 输入框位置：遮罩右侧中间
+          setInputPosition({
+            x: bounds.maxX + 20,
+            y: (bounds.minY + bounds.maxY) / 2,
+          });
+          // 聚焦输入框
+          setTimeout(() => inputRef.current?.focus(), 100);
+        }
+      }
     }
-  }, [isDrawing, saveHistoryState]);
+  }, [isDrawing, saveHistoryState, mode, calculateMaskBounds]);
 
   // 撤销
   const handleUndo = useCallback(() => {
@@ -270,8 +354,8 @@ export function ImageMaskEditor({ imageSrc, onConfirm, onCancel }: ImageMaskEdit
 
     // 导出为 data URL
     const maskDataUrl = outputCanvas.toDataURL('image/png');
-    onConfirm(maskDataUrl);
-  }, [imageSize, onConfirm]);
+    onConfirm(maskDataUrl, mode === 'repaint' ? repaintPrompt : undefined);
+  }, [imageSize, onConfirm, mode, repaintPrompt]);
 
   // 键盘快捷键
   useEffect(() => {
@@ -304,15 +388,6 @@ export function ImageMaskEditor({ imageSrc, onConfirm, onCancel }: ImageMaskEdit
     <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center">
       {/* 顶部工具栏 */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-white rounded-xl shadow-lg px-4 py-2 flex items-center gap-4">
-        {/* AI 抠图标题 */}
-        <div className="flex items-center gap-2 text-gray-700 font-medium pr-4 border-r border-gray-200">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <path d="M9 3v18M3 9h18" />
-          </svg>
-          AI 擦除
-        </div>
-
         {/* 画笔大小 */}
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 rounded-full bg-gray-400" />
@@ -405,27 +480,62 @@ export function ImageMaskEditor({ imageSrc, onConfirm, onCancel }: ImageMaskEdit
           onTouchEnd={handleEnd}
         />
 
-        {/* AI生成标签 */}
-        <div className="absolute top-3 left-3 px-2 py-1 bg-white/80 rounded text-xs text-gray-600 pointer-events-none">
-          AI生成
-        </div>
+        {/* 局部重绘输入框 */}
+        {mode === 'repaint' && hasMask && maskBounds && (
+          <div
+            className="absolute z-10"
+            style={{
+              left: inputPosition.x,
+              top: inputPosition.y,
+              transform: 'translateY(-50%)',
+            }}
+          >
+            <div className="flex items-center bg-white rounded-full shadow-lg border border-gray-200 px-4 py-2 min-w-[280px]">
+              <input
+                ref={inputRef}
+                type="text"
+                value={repaintPrompt}
+                onChange={(e) => setRepaintPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && repaintPrompt.trim()) {
+                    handleConfirm();
+                  }
+                }}
+                placeholder="描述想重绘的内容..."
+                className="flex-1 bg-transparent border-none focus:outline-none text-gray-700 text-sm placeholder-gray-400"
+              />
+              <button
+                onClick={handleConfirm}
+                disabled={!repaintPrompt.trim()}
+                className="ml-2 p-1.5 rounded-full bg-gray-100 hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 19V5M5 12l7-7 7 7" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
+
       </div>
 
-      {/* 底部确认按钮 */}
-      <div className="absolute bottom-8">
-        <button
-          onClick={handleConfirm}
-          disabled={!hasMask}
-          className="px-8 py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-full font-medium shadow-lg transition-colors"
-        >
-          擦除所选区域
-        </button>
-      </div>
+      {/* 底部确认按钮 - 仅擦除模式显示 */}
+      {mode === 'erase' && (
+        <div className="absolute bottom-8">
+          <button
+            onClick={handleConfirm}
+            disabled={!hasMask}
+            className="px-8 py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-full font-medium shadow-lg transition-colors"
+          >
+            擦除所选区域
+          </button>
+        </div>
+      )}
 
       {/* 提示文字 */}
       {!hasMask && (
         <div className="absolute bottom-24 text-white/60 text-sm">
-          用鼠标在图片上涂抹要擦除的区域
+          {mode === 'erase' ? '用鼠标在图片上涂抹要擦除的区域' : '用鼠标在图片上涂抹要重绘的区域'}
         </div>
       )}
     </div>

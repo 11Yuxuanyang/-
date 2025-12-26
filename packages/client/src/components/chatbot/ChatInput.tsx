@@ -1,7 +1,29 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { ArrowUp, Paperclip, Globe, X, ChevronDown } from 'lucide-react';
+import { ArrowUp, Paperclip, Globe, X, FileText, FileSpreadsheet, Presentation, File } from 'lucide-react';
 import { ChatAttachment } from '@/types';
 import { generateId } from '@/utils/id';
+
+// 获取文件类型图标
+const getFileIcon = (mimeType: string) => {
+  if (mimeType.includes('spreadsheet') || mimeType.includes('excel')) {
+    return <FileSpreadsheet size={20} className="text-green-600" />;
+  }
+  if (mimeType.includes('word') || mimeType.includes('document')) {
+    return <FileText size={20} className="text-blue-600" />;
+  }
+  if (mimeType.includes('presentation') || mimeType.includes('powerpoint')) {
+    return <Presentation size={20} className="text-orange-600" />;
+  }
+  if (mimeType === 'application/pdf') {
+    return <FileText size={20} className="text-red-600" />;
+  }
+  return <File size={20} className="text-gray-600" />;
+};
+
+// 获取文件扩展名
+const getFileExtension = (fileName: string): string => {
+  return fileName.split('.').pop()?.toUpperCase() || '';
+};
 
 interface ChatInputProps {
   onSend: (content: string, attachments: ChatAttachment[]) => void;
@@ -22,6 +44,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isComposingRef = useRef(false); // 中文输入法组合状态
 
   // 自动调整高度
   const adjustHeight = useCallback(() => {
@@ -47,7 +70,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // 中文输入法组合中，回车是选字，不发送
+    if (e.key === 'Enter' && !e.shiftKey && !isComposingRef.current) {
       e.preventDefault();
       handleSubmit();
     }
@@ -57,17 +81,33 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     const files = e.target.files;
     if (!files) return;
 
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    const allowedTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'text/plain', 'application/pdf'];
+    const maxSize = 50 * 1024 * 1024; // 50MB
+    const allowedTypes = [
+      // 图片
+      'image/png', 'image/jpeg', 'image/gif', 'image/webp',
+      // 文本
+      'text/plain',
+      // PDF
+      'application/pdf',
+      // Excel
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // xlsx
+      'application/vnd.ms-excel', // xls
+      // Word
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // docx
+      'application/msword', // doc
+      // PowerPoint
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation', // pptx
+      'application/vnd.ms-powerpoint', // ppt
+    ];
 
     for (const file of Array.from(files)) {
       if (file.size > maxSize) {
-        alert(`文件 ${file.name} 超过10MB限制`);
+        alert(`文件 ${file.name} 超过50MB限制`);
         continue;
       }
 
       if (!allowedTypes.includes(file.type)) {
-        alert(`不支持的文件类型: ${file.type}`);
+        alert(`不支持的文件类型: ${file.type}\n支持: 图片、PDF、Excel、Word、PPT`);
         continue;
       }
 
@@ -123,9 +163,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   className="w-16 h-16 object-cover rounded-xl border border-gray-200"
                 />
               ) : (
-                <div className="w-16 h-16 rounded-xl border border-gray-200 flex items-center justify-center bg-white">
-                  <span className="text-[10px] text-gray-500 text-center px-1 truncate">
-                    {attachment.name}
+                <div className="w-16 h-16 rounded-xl border border-gray-200 flex flex-col items-center justify-center bg-white gap-1">
+                  {getFileIcon(attachment.type)}
+                  <span className="text-[9px] text-gray-500 font-medium">
+                    {getFileExtension(attachment.name)}
                   </span>
                 </div>
               )}
@@ -152,6 +193,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               adjustHeight();
             }}
             onKeyDown={handleKeyDown}
+            onCompositionStart={() => { isComposingRef.current = true; }}
+            onCompositionEnd={() => { isComposingRef.current = false; }}
             placeholder="选择文件或输入任何问题"
             disabled={isLoading || disabled}
             rows={1}
@@ -174,7 +217,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*,.txt,.pdf"
+              accept="image/*,.txt,.pdf,.xlsx,.xls,.docx,.doc,.pptx,.ppt"
               multiple
               onChange={handleFileSelect}
               className="hidden"
@@ -192,19 +235,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               `}
             >
               <Globe size={16} />
-              <span>{webSearchEnabled ? '联网已开启' : '全部来源'}</span>
+              <span>{webSearchEnabled ? '联网已开启' : '联网'}</span>
             </button>
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Model Selector */}
-            <button
-              className="flex items-center gap-1 px-3 py-2 rounded-lg border border-gray-200/80 text-gray-500 hover:text-gray-700 hover:bg-gray-50 transition-colors text-sm"
-            >
-              <span>星流</span>
-              <ChevronDown size={14} />
-            </button>
-
             {/* Send Button */}
             <button
               onClick={handleSubmit}

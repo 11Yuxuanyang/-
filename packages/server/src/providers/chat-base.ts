@@ -13,6 +13,7 @@ export interface ChatMessageInput {
   role: ChatRole;
   content: string | ContentPart[];
   attachments?: Array<{
+    name?: string; // 文件名（用于 RAG 文档处理）
     type: string;
     content: string;
   }>;

@@ -8,7 +8,21 @@
       "Bash(xargs cat:*)",
       "Bash(tree:*)",
       "Bash(find:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: 集成 OpenRouter 聊天、Markdown 渲染、图片擦除等功能\n\n主要更新：\n- 新增 OpenRouter 聊天提供商，支持 minimax-m2.1 等多种模型\n- 新增 Markdown 渲染组件，支持代码高亮、表格、任务列表等\n- 新增网络搜索服务（DuckDuckGo），支持联网搜索功能\n- 新增图片遮罩编辑器，支持 AI 擦除（Inpainting）功能\n- 优化画布编辑器：修复视口中心坐标计算，新增 loading 占位框\n- 优化 AI 助手系统提示词，使用 XML 结构化格式\n- 删除未使用的 Storyboard 分镜模块\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push:*)",
+      "Bash(cat:*)",
+      "Bash(npm run build:*)",
+      "Bash(grep:*)",
+      "Bash(pkill:*)",
+      "Bash(npm run dev:*)",
+      "Bash(wc:*)",
+      "Bash(npm run build:client:*)",
+      "Bash(npm run dev:server:*)",
+      "Bash(lsof:*)",
+      "Bash(xargs kill:*)",
+      "Bash(npm view:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []

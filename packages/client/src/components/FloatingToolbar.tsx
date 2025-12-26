@@ -15,7 +15,8 @@ interface FloatingToolbarProps {
   onUpscale: () => void;
   onRemoveBg: () => void;
   onEdit: (prompt: string) => void;
-  onInpaint: () => void;  // 涂抹擦除
+  onInpaint: () => void;   // 涂抹擦除
+  onRepaint: () => void;   // 局部重绘
   onExpand: () => void;
   onDelete: () => void;
   onDownload: () => void;
@@ -64,6 +65,7 @@ export const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   onRemoveBg,
   onEdit,
   onInpaint,
+  onRepaint,
   onExpand,
   onDelete,
   onDownload,
@@ -83,11 +85,11 @@ export const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
 
   return (
     <div
-      className="absolute top-[-52px] left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-bottom-2 duration-200"
+      className="absolute top-[-64px] left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-bottom-2 duration-200"
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="bg-white/95 backdrop-blur-xl border border-gray-200 rounded-xl shadow-lg px-2 py-1.5 flex items-center gap-0.5">
+      <div className="bg-white/95 backdrop-blur-xl border border-gray-200 rounded-xl px-2 py-1.5 flex items-center gap-0.5">
 
         {/* Magic Edit Input Overlay */}
         {showEditInput ? (
@@ -149,11 +151,8 @@ export const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
               />
               <ToolButton
                 icon={<Paintbrush size={14} />}
-                label="局部修改"
-                onClick={() => {
-                  setShowEditInput(true);
-                  setEditPrompt("将图片中的...修改为...");
-                }}
+                label="局部重绘"
+                onClick={onRepaint}
                 disabled={isProcessing}
               />
             </div>

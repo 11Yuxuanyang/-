@@ -81,7 +81,7 @@ export class DoubaoProvider implements AIProvider {
       response_format: 'url',                   // 返回 URL
       size: sizeValue,                          // 支持宽高比或分辨率
       stream: false,
-      watermark: params.watermark ?? true,      // 默认添加水印
+      watermark: false,                         // 不添加水印
     };
 
     debugLog('[Doubao] 请求体:', requestBody);
@@ -172,7 +172,7 @@ export class DoubaoProvider implements AIProvider {
       sequential_image_generation: 'disabled',  // 禁用组图生成，只生成单张
       response_format: 'url',
       stream: false,
-      watermark: true,
+      watermark: false,                         // 不添加水印
     };
 
     debugLog('[Doubao] 图生图请求体:', {

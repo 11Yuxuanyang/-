@@ -7,6 +7,8 @@ import { getChatProvider } from '../providers/chat-index.js';
 import { ChatMessageInput } from '../providers/chat-base.js';
 import { asyncHandler, validateBody, schemas } from '../middleware/index.js';
 import { searchWeb, formatSearchResultsForContext } from '../services/webSearch.js';
+import { ragService, IndexedDocument } from '../services/rag/index.js';
+import { documentParser } from '../services/documentParser.js';
 
 export const chatRouter = Router();
 
@@ -57,22 +59,25 @@ function buildSystemPrompt(webSearchEnabled: boolean): string {
   </capabilities>
 
   <output_format>
-    <rule>使用 Markdown 格式输出，结构清晰</rule>
+    <rule>模块化输出，每个模块有清晰边界</rule>
     <elements>
-      <element name="标题">用 ## 和 ### 组织层次</element>
-      <element name="列表">有序或无序列表列举要点</element>
+      <element name="模块标题">用 ### 开始每个模块，简短有力</element>
+      <element name="列表">- 无序列表列举要点，简洁明了</element>
       <element name="强调">**粗体** 标记关键词</element>
       <element name="术语">\`反引号\` 包裹专业名词</element>
-      <element name="对白">> 引用角色台词</element>
-      <element name="分隔">--- 分隔不同模块</element>
-      <element name="表格">适时用表格整理对比信息</element>
+      <element name="对白">角色名：「台词内容」的格式</element>
+      <element name="空行">模块之间用空行分隔，不用 --- 分隔线</element>
     </elements>
     <structure>
-      <step order="1">概述：核心观点一句话说清</step>
-      <step order="2">展开：分点详细论述</step>
-      <step order="3">建议：可执行的具体方案</step>
-      <step order="4">延展：后续可探索的方向（可选）</step>
+      <principle>每个回复分2-4个小模块，每模块聚焦一个点</principle>
+      <principle>模块标题直接点明内容，如"核心想法"、"具体方案"、"延展思路"</principle>
+      <principle>每模块3-5行，避免大段落</principle>
     </structure>
+    <forbidden>
+      <item>不用 > 引用块（竖线）</item>
+      <item>不用 --- 分隔线</item>
+      <item>不用过长的段落</item>
+    </forbidden>
   </output_format>
 
   <style>
@@ -84,12 +89,12 @@ function buildSystemPrompt(webSearchEnabled: boolean): string {
   </style>
 
   <guidelines>
-    <do>主动分模块组织复杂内容</do>
+    <do>主动分模块组织内容，每模块一个小标题</do>
     <do>为视觉场景提供 AI 绘图提示词</do>
-    <do>用引用块展示对白和台词</do>
-    <do>复杂信息用表格呈现</do>
-    <dont>不要过于冗长啰嗦</dont>
+    <do>对白用「」括起来，前面加角色名</do>
+    <dont>不要过于冗长啰嗦，每模块控制在3-5行</dont>
     <dont>不要生硬机械，要有温度</dont>
+    <dont>不用 emoji</dont>
   </guidelines>
 </assistant>`;
 
@@ -102,6 +107,64 @@ function buildSystemPrompt(webSearchEnabled: boolean): string {
   }
 
   return prompt;
+}
+
+/**
+ * 处理消息中的文档附件
+ * 使用 RAG：索引文档到向量数据库，返回文档 ID 列表
+ */
+async function processDocumentAttachments(messages: ChatMessageInput[]): Promise<IndexedDocument[]> {
+  const indexedDocs: IndexedDocument[] = [];
+
+  for (const msg of messages) {
+    if (!msg.attachments) continue;
+
+    for (const attachment of msg.attachments) {
+      // 检查是否为文档类型（使用文件名和 MIME 类型）
+      const fileName = attachment.name || `document.${attachment.type.split('/').pop()}`;
+      const isDocument = documentParser.isSupported(fileName, attachment.type);
+
+      if (isDocument) {
+        try {
+          // 使用 RAG 服务索引文档
+          const indexed = await ragService.indexDocumentFromBase64(
+            attachment.content,
+            fileName,
+            attachment.type
+          );
+          indexedDocs.push(indexed);
+          console.log(`[Chat] 已索引文档: ${indexed.fileName}, ${indexed.chunkCount} 个片段`);
+        } catch (error) {
+          console.error(`[Chat] 文档索引失败:`, error);
+        }
+      }
+    }
+  }
+
+  return indexedDocs;
+}
+
+/**
+ * 使用 RAG 检索相关文档内容
+ */
+async function retrieveDocumentContext(
+  query: string,
+  documentIds: string[]
+): Promise<string> {
+  if (documentIds.length === 0) return '';
+
+  try {
+    const context = await ragService.retrieve(query, {
+      documentIds,
+      limit: 8, // 检索最相关的 8 个片段
+      minScore: 0.3, // 最低相似度阈值
+    });
+
+    return ragService.buildContextPrompt(context);
+  } catch (error) {
+    console.error('[Chat] RAG 检索失败:', error);
+    return '';
+  }
 }
 
 /**
@@ -141,6 +204,35 @@ chatRouter.post(
         } catch (error) {
           console.error('[Chat] 搜索失败:', error);
           // 搜索失败不影响对话继续
+        }
+      }
+    }
+
+    // 处理文档附件 (使用 RAG)
+    let indexedDocumentIds: string[] = [];
+    try {
+      const indexedDocs = await processDocumentAttachments(messages);
+      if (indexedDocs.length > 0) {
+        indexedDocumentIds = indexedDocs.map(d => d.id);
+        console.log(`[Chat] 已索引 ${indexedDocs.length} 个文档，共 ${indexedDocs.reduce((sum, d) => sum + d.chunkCount, 0)} 个片段`);
+      }
+    } catch (error) {
+      console.error('[Chat] 文档索引失败:', error);
+      // 文档索引失败不影响对话继续
+    }
+
+    // 如果有文档，使用 RAG 检索相关内容
+    if (indexedDocumentIds.length > 0) {
+      const userQuery = extractSearchQuery(messages);
+      if (userQuery) {
+        try {
+          const ragContext = await retrieveDocumentContext(userQuery, indexedDocumentIds);
+          if (ragContext) {
+            systemPrompt += ragContext;
+            console.log(`[Chat] RAG 检索完成，已注入相关上下文`);
+          }
+        } catch (error) {
+          console.error('[Chat] RAG 检索失败:', error);
         }
       }
     }

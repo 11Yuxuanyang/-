@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import html2canvas from 'html2canvas';
 import {
   MousePointer2,
@@ -7,32 +7,23 @@ import {
   ImagePlus,
   Camera,
   ArrowRight,
-  Share2,
-  ArrowLeft,
   Settings2,
   ZoomIn,
   ZoomOut,
-  Maximize,
   X,
-  SwitchCamera,
   Pencil,
   Square,
   Circle,
   Shapes,
-  Lock,
-  Diamond,
   MoveRight,
   Minus,
-  Eraser,
-  Image as LucideImage,
   Loader2,
   Sparkles,
   Wand2,
 } from 'lucide-react';
 import { CanvasOnboarding } from './CanvasOnboarding';
 import { FloatingToolbar } from './FloatingToolbar';
-import { ImageMaskEditor } from './ImageMaskEditor';
-import { IconBtn } from './IconBtn';
+import { CollaboratorCursors, SharePanel } from './Collaboration';
 import { CanvasItem, ToolMode, Project } from '../types';
 import * as API from '../services/api';
 import * as ProjectService from '../services/projectService';
@@ -40,6 +31,20 @@ import { ChatbotPanel } from './chatbot';
 import { generateId } from '../utils/id';
 import { Tooltip } from './ui';
 import { Logo } from './Logo';
+import { useCollaboration, useCropping, useMaskEditing, useClipboard } from '../hooks';
+import {
+  DEFAULT_IMAGE_SIZE,
+  DEFAULT_TEXT_WIDTH,
+  DEFAULT_TEXT_HEIGHT,
+  DEFAULT_FONT_SIZE,
+  MIN_SCALE,
+  MAX_SCALE,
+  AUTO_SAVE_DELAY,
+  MAX_SELECTED_IMAGES,
+  MAX_DISPLAY_SIZE,
+  COLORS,
+  DEFAULTS,
+} from '../constants/canvas';
 
 interface CanvasEditorProps {
   project: Project;
@@ -64,10 +69,13 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
   const [prompt, setPrompt] = useState("");
   const [aspectRatio, setAspectRatio] = useState("1:1");
   const [resolution, setResolution] = useState("2K");
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);  // 全局生成状态（文生图）
+  const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());  // 正在处理的图片 ID
   const [showSettings, setShowSettings] = useState(false);
   // Loading 占位区域位置（画布坐标系）
   const [loadingPosition, setLoadingPosition] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  // 生成期间的参考图片 ID（用于显示临时连接线）
+  const [loadingSourceIds, setLoadingSourceIds] = useState<string[]>([]);
 
   // Dragging State
   const [isDragging, setIsDragging] = useState(false);
@@ -106,9 +114,15 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
   // 文字编辑状态
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
 
-  // 图片裁切状态
-  const [croppingImageId, setCroppingImageId] = useState<string | null>(null);
-  const [cropBox, setCropBox] = useState({ x: 0, y: 0, width: 0, height: 0 });
+  // 图片裁切（使用 hook）
+  const {
+    croppingImageId,
+    cropBox,
+    setCropBox,
+    startCropping,
+    applyCrop,
+    cancelCrop,
+  } = useCropping({ items, setItems });
 
   // 创作工具菜单状态
   const [showCreativeTools, setShowCreativeTools] = useState(false);
@@ -119,11 +133,38 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
   // AI 融合状态
   const [showFusionPanel, setShowFusionPanel] = useState(false);
   const [fusionPrompt, setFusionPrompt] = useState('');
-  const [isFusing, setIsFusing] = useState(false);
+  const [_isFusing, setIsFusing] = useState(false);
   const [fusionReferenceImage, setFusionReferenceImage] = useState<string | null>(null);
 
-  // 图片擦除状态（Inpainting）
-  const [inpaintingImage, setInpaintingImage] = useState<{ id: string; src: string } | null>(null);
+  // 图片擦除/重绘（使用 hook）
+  const {
+    maskEditingId,
+    maskEditMode,
+    maskBrushSize,
+    setMaskBrushSize,
+    repaintPrompt,
+    setRepaintPrompt,
+    maskCanvasRef,
+    isMaskDrawing,
+    setIsMaskDrawing,
+    hasMaskContent,
+    openMaskEdit: handleOpenMaskEdit,
+    cancelMaskEdit: handleCancelMaskEdit,
+    clearMask: handleClearMask,
+    confirmMaskEdit: handleConfirmMaskEdit,
+    drawMaskBrush,
+    resetLastPoint,
+  } = useMaskEditing({
+    items,
+    setItems,
+    selectedIds,
+    addProcessingId: (id: string) => setProcessingIds(prev => new Set(prev).add(id)),
+    removeProcessingId: (id: string) => setProcessingIds(prev => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    }),
+  });
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const canvasContentRef = useRef<HTMLDivElement>(null);
@@ -131,34 +172,248 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
   const nameInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const loadingPositionRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
+  const mousePositionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 }); // 鼠标位置（画布坐标）
+
+  // 剪贴板功能（使用 hook）
+  const { clipboard, copy, cut, paste, duplicate } = useClipboard({
+    items,
+    setItems,
+    selectedIds,
+    setSelectedIds,
+    getMousePosition: () => mousePositionRef.current,
+  });
+
+  // 协作功能
+  const {
+    isConnected: isCollabConnected,
+    collaborators,
+    remoteCursors,
+    remoteSelections,
+    myColor,
+    sendCursorMove,
+    sendSelectionChange,
+    collaboratorCount,
+  } = useCollaboration({
+    projectId: project.id,
+    enabled: true, // 默认启用协作
+  });
+
+  // 选择变化时同步给其他协作者
+  useEffect(() => {
+    if (isCollabConnected) {
+      sendSelectionChange(selectedIds);
+    }
+  }, [selectedIds, isCollabConnected, sendSelectionChange]);
+
+  // 计算连接线的起点和终点（就近原则：选择最近的边连接）
+  // fixedEnd: 可选的固定终点，用于多源图片时保持终点一致
+  const calcConnectionPoints = useCallback((
+    sourceItem: CanvasItem,
+    targetItem: CanvasItem,
+    fixedEnd?: { x: number; y: number }
+  ) => {
+    const gap = 12;
+    const sCx = sourceItem.x + sourceItem.width / 2;
+    const sCy = sourceItem.y + sourceItem.height / 2;
+
+    let startX: number, startY: number, endX: number, endY: number;
+    let isVertical: boolean;
+
+    if (fixedEnd) {
+      // 使用固定终点
+      endX = fixedEnd.x;
+      endY = fixedEnd.y;
+      const dx = endX - sCx;
+      const dy = endY - sCy;
+      isVertical = Math.abs(dy) > Math.abs(dx);
+      if (!isVertical) {
+        startX = dx > 0 ? sourceItem.x + sourceItem.width + gap : sourceItem.x - gap;
+        startY = sCy;
+      } else {
+        startY = dy > 0 ? sourceItem.y + sourceItem.height + gap : sourceItem.y - gap;
+        startX = sCx;
+      }
+    } else {
+      const tCx = targetItem.x + targetItem.width / 2;
+      const tCy = targetItem.y + targetItem.height / 2;
+      const dx = tCx - sCx;
+      const dy = tCy - sCy;
+      isVertical = Math.abs(dy) > Math.abs(dx);
+
+      if (!isVertical) {
+        if (dx > 0) {
+          startX = sourceItem.x + sourceItem.width + gap;
+          endX = targetItem.x - gap;
+        } else {
+          startX = sourceItem.x - gap;
+          endX = targetItem.x + targetItem.width + gap;
+        }
+        startY = sCy;
+        endY = tCy;
+      } else {
+        if (dy > 0) {
+          startY = sourceItem.y + sourceItem.height + gap;
+          endY = targetItem.y - gap;
+        } else {
+          startY = sourceItem.y - gap;
+          endY = targetItem.y + targetItem.height + gap;
+        }
+        startX = sCx;
+        endX = tCx;
+      }
+    }
+    return { startX, startY, endX, endY, isVertical };
+  }, []);
+
+  // 计算多源图片时的统一目标连接点
+  const calcUnifiedEndPoint = useCallback((sourceItems: CanvasItem[], targetItem: CanvasItem) => {
+    const gap = 12;
+    // 计算所有源图片中心的平均位置
+    const avgX = sourceItems.reduce((sum, s) => sum + s.x + s.width / 2, 0) / sourceItems.length;
+    const avgY = sourceItems.reduce((sum, s) => sum + s.y + s.height / 2, 0) / sourceItems.length;
+    const tCx = targetItem.x + targetItem.width / 2;
+    const tCy = targetItem.y + targetItem.height / 2;
+    const dx = tCx - avgX;
+    const dy = tCy - avgY;
+    const isVertical = Math.abs(dy) > Math.abs(dx);
+
+    let endX: number, endY: number;
+    if (!isVertical) {
+      endX = dx > 0 ? targetItem.x - gap : targetItem.x + targetItem.width + gap;
+      endY = tCy;
+    } else {
+      endY = dy > 0 ? targetItem.y - gap : targetItem.y + targetItem.height + gap;
+      endX = tCx;
+    }
+    return { x: endX, y: endY };
+  }, []);
+
+  // 创建溯源连接线（贝塞尔曲线）
+  const createConnectionCurve = useCallback((
+    sourceItem: CanvasItem,
+    targetItem: CanvasItem,
+    fixedEnd?: { x: number; y: number }
+  ): CanvasItem => {
+    const { startX, startY, endX, endY } = calcConnectionPoints(sourceItem, targetItem, fixedEnd);
+
+    return {
+      id: generateId(),
+      type: 'connection',
+      src: '',
+      x: Math.min(startX, endX) - 20,
+      y: Math.min(startY, endY) - 20,
+      width: Math.abs(endX - startX) + 40,
+      height: Math.abs(endY - startY) + 40,
+      zIndex: 0,
+      stroke: '#a78bfa',
+      strokeWidth: 3,
+      startPoint: { x: startX, y: startY },
+      endPoint: { x: endX, y: endY },
+      sourceItemId: sourceItem.id,
+      targetItemId: targetItem.id,
+    };
+  }, [calcConnectionPoints]);
+
+  // 更新与指定元素关联的所有连接线（实时更新）
+  const updateConnectionsRealtime = useCallback((currentItems: CanvasItem[], movedItemIds: string[]): CanvasItem[] => {
+    const movedSet = new Set(movedItemIds);
+
+    // 找出需要更新的连接线，并按目标分组
+    const connectionsByTarget = new Map<string, CanvasItem[]>();
+    currentItems.forEach(item => {
+      if (item.type !== 'connection' || !item.targetItemId) return;
+      if (!connectionsByTarget.has(item.targetItemId)) {
+        connectionsByTarget.set(item.targetItemId, []);
+      }
+      connectionsByTarget.get(item.targetItemId)!.push(item);
+    });
+
+    // 预计算每个目标的统一终点（仅当有多个源时）
+    const unifiedEndPoints = new Map<string, { x: number; y: number } | undefined>();
+    connectionsByTarget.forEach((connections, targetId) => {
+      const targetItem = currentItems.find(i => i.id === targetId);
+      if (!targetItem) return;
+      if (connections.length > 1) {
+        const sourceItems = connections
+          .map(c => currentItems.find(i => i.id === c.sourceItemId))
+          .filter((s): s is CanvasItem => !!s);
+        if (sourceItems.length > 1) {
+          unifiedEndPoints.set(targetId, calcUnifiedEndPoint(sourceItems, targetItem));
+        }
+      }
+    });
+
+    return currentItems.map(item => {
+      if (item.type !== 'connection') return item;
+      if (!item.sourceItemId || !item.targetItemId) return item;
+      if (!movedSet.has(item.sourceItemId) && !movedSet.has(item.targetItemId)) return item;
+
+      const sourceItem = currentItems.find(i => i.id === item.sourceItemId);
+      const targetItem = currentItems.find(i => i.id === item.targetItemId);
+      if (!sourceItem || !targetItem) return item;
+
+      const fixedEnd = unifiedEndPoints.get(item.targetItemId);
+      const { startX, startY, endX, endY } = calcConnectionPoints(sourceItem, targetItem, fixedEnd);
+
+      return {
+        ...item,
+        x: Math.min(startX, endX) - 20,
+        y: Math.min(startY, endY) - 20,
+        width: Math.abs(endX - startX) + 40,
+        height: Math.abs(endY - startY) + 40,
+        startPoint: { x: startX, y: startY },
+        endPoint: { x: endX, y: endY },
+      };
+    });
+  }, [calcConnectionPoints, calcUnifiedEndPoint]);
+
+  // 更新与指定元素关联的所有连接线
+  const updateConnections = useCallback((movedItemIds: string[]) => {
+    setItems(prev => updateConnectionsRealtime(prev, movedItemIds));
+  }, [updateConnectionsRealtime]);
 
   const handleTemplateSelect = (template: 'cyberpunk' | 'mascot' | 'surreal') => {
     // Mock template loading - in real app this would load specific JSON
     // 视口中心对应的画布坐标
-    const centerX = -pan.x / scale;
-    const centerY = -pan.y / scale;
+            const padding = 8;
 
-    let newItems: CanvasItem[] = [];
-
-    if (template === 'cyberpunk') {
-      newItems = [
-        { id: generateId(), type: 'text', src: 'Cyberpunk City', x: centerX - 100, y: centerY - 150, width: 200, height: 40, zIndex: 1, fontSize: 32, fontFamily: 'system-ui', fontWeight: 'bold', color: '#0ea5e9', textAlign: 'center' },
-        { id: generateId(), type: 'rectangle', src: '', x: centerX - 120, y: centerY - 100, width: 240, height: 200, zIndex: 0, fill: '#1e293b', stroke: '#0ea5e9', strokeWidth: 2, borderRadius: 16 }
-      ];
-    } else if (template === 'mascot') {
-      newItems = [
-        { id: generateId(), type: 'text', src: 'Cute Mascot', x: centerX - 100, y: centerY - 150, width: 200, height: 40, zIndex: 1, fontSize: 32, fontFamily: 'system-ui', fontWeight: 'bold', color: '#f59e0b', textAlign: 'center' },
-        { id: generateId(), type: 'circle', src: '', x: centerX - 60, y: centerY - 60, width: 120, height: 120, zIndex: 0, fill: '#fef3c7', stroke: '#f59e0b', strokeWidth: 2 }
-      ];
-    } else {
-      newItems = [
-        { id: generateId(), type: 'text', src: 'Surreal Art', x: centerX - 100, y: centerY - 150, width: 200, height: 40, zIndex: 1, fontSize: 32, fontFamily: 'system-ui', fontWeight: 'bold', color: '#a855f7', textAlign: 'center' },
-        { id: generateId(), type: 'brush', src: '', x: 0, y: 0, width: 0, height: 0, zIndex: 0, stroke: '#a855f7', strokeWidth: 4, points: [{ x: centerX, y: centerY }, { x: centerX + 50, y: centerY + 50 }, { x: centerX + 100, y: centerY }] }
-      ];
-    }
-
-    setItems(prev => [...prev, ...newItems]);
-  };
+            return (
+              <div
+                className="absolute"
+                style={{
+                  left: minX - padding,
+                  top: minY - padding,
+                  width: maxX - minX + padding * 2,
+                  height: maxY - minY + padding * 2,
+                }}
+              >
+                {/* 外发光 */}
+                <div className="absolute inset-0 rounded-2xl bg-primary/10 blur-md pointer-events-none" />
+                {/* 边框 */}
+                <div className="absolute inset-0 rounded-xl border-2 border-primary/60 border-dashed pointer-events-none" />
+                {/* 四角手柄 */}
+                <div className="absolute -top-2 -left-2 w-4 h-4 bg-white border-2 border-primary rounded-full shadow-md cursor-nwse-resize hover:scale-125 transition-transform" onMouseDown={(e) => handleResizeStart(e, 'tl')} />
+                <div className="absolute -top-2 -right-2 w-4 h-4 bg-white border-2 border-primary rounded-full shadow-md cursor-nesw-resize hover:scale-125 transition-transform" onMouseDown={(e) => handleResizeStart(e, 'tr')} />
+                <div className="absolute -bottom-2 -left-2 w-4 h-4 bg-white border-2 border-primary rounded-full shadow-md cursor-nesw-resize hover:scale-125 transition-transform" onMouseDown={(e) => handleResizeStart(e, 'bl')} />
+                <div className="absolute -bottom-2 -right-2 w-4 h-4 bg-white border-2 border-primary rounded-full shadow-md cursor-nwse-resize hover:scale-125 transition-transform" onMouseDown={(e) => handleResizeStart(e, 'br')} />
+                {/* 多选工具栏 */}
+                {!isPanning && !isDragging && (
+                  <div style={{ transform: `scale(${1 / scale})`, transformOrigin: 'top center' }} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+                    <div className="absolute top-[-50px] left-1/2 -translate-x-1/2 z-50 flex items-center gap-2">
+                      <button onClick={handleAIFusion} className="px-3 py-2 bg-gradient-to-r from-violet-500 to-purple-600 rounded-lg shadow-lg text-white hover:from-violet-600 hover:to-purple-700 transition-all flex items-center gap-2 group" title="AI 融合 - 将选中元素作为参考生成新图像">
+                        <Wand2 size={16} className="group-hover:rotate-12 transition-transform" />
+                        <span className="text-xs font-medium">AI 融合</span>
+                        <Sparkles size={12} className="opacity-70" />
+                      </button>
+                      <button onClick={handleDelete} className="p-2 bg-white rounded-lg shadow-lg border border-gray-200 text-gray-600 hover:text-red-500 hover:bg-red-50 transition-colors flex items-center gap-1.5" title={`删除 ${selectedIds.length} 个元素`}>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>
+                        <span className="text-xs font-medium">{selectedIds.length}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );  };
 
 
   // Auto-save effect
@@ -193,19 +448,19 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
           setTimeout(async () => {
             setIsProcessing(true);
             try {
-              const base64Image = await API.generateImage({
+              const newImageSrc = await API.generateImage({
                 prompt: pendingPromptText,
                 aspectRatio: '1:1',
               });
 
               const img = new window.Image();
-              img.src = base64Image;
+              img.src = newImageSrc;
               img.onload = () => {
-                const displaySize = 400;
+                const displaySize = DEFAULT_IMAGE_SIZE;
                 const newItem: CanvasItem = {
                   id: generateId(),
                   type: 'image',
-                  src: base64Image,
+                  src: newImageSrc,
                   x: -pan.x / scale - displaySize / 2,
                   y: -pan.y / scale - displaySize / 2,
                   width: displaySize,
@@ -219,7 +474,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
               };
             } catch (error) {
               console.error('Auto-generate failed:', error);
-              alert('生成失败，请检查后端服务是否正常运行。');
+              alert(error instanceof Error ? error.message : '生成失败，请检查后端服务是否正常运行。');
             } finally {
               setIsProcessing(false);
             }
@@ -258,7 +513,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
     };
   }, []);
 
-  // 键盘快捷键 - 删除选中项
+  // 键盘快捷键 - 删除、复制、粘贴
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // 如果正在编辑文字或输入框，不处理
@@ -266,17 +521,49 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         return;
       }
 
+      const isMod = e.metaKey || e.ctrlKey;
+
       // Delete 或 Backspace 删除选中项
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.length > 0) {
         e.preventDefault();
         setItems(prev => prev.filter(i => !selectedIds.includes(i.id)));
         setSelectedIds([]);
       }
+
+      // Ctrl/Cmd + C 复制
+      if (isMod && e.key === 'c' && selectedIds.length > 0) {
+        e.preventDefault();
+        copy();
+      }
+
+      // Ctrl/Cmd + X 剪切
+      if (isMod && e.key === 'x' && selectedIds.length > 0) {
+        e.preventDefault();
+        cut();
+      }
+
+      // Ctrl/Cmd + V 粘贴到鼠标位置
+      if (isMod && e.key === 'v' && clipboard.length > 0) {
+        e.preventDefault();
+        paste();
+      }
+
+      // Ctrl/Cmd + D 快速复制（原地偏移复制）
+      if (isMod && e.key === 'd' && selectedIds.length > 0) {
+        e.preventDefault();
+        duplicate();
+      }
+
+      // Ctrl/Cmd + A 全选（排除连接线）
+      if (isMod && e.key === 'a') {
+        e.preventDefault();
+        setSelectedIds(items.filter(i => i.type !== 'connection').map(i => i.id));
+      }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIds, editingTextId, isEditingName]);
+  }, [selectedIds, editingTextId, isEditingName, items, clipboard, copy, cut, paste, duplicate]);
 
   // 摄像头视频源设置
   useEffect(() => {
@@ -288,10 +575,10 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
   // --- Actions ---
 
   const handleZoom = (delta: number) => {
-    setScale(prev => Math.min(Math.max(0.1, prev + delta), 5));
+    setScale(prev => Math.min(Math.max(MIN_SCALE, prev + delta), MAX_SCALE));
   };
 
-  const handleResetView = () => {
+  const _handleResetView = () => {
     setScale(1);
     setPan({ x: 0, y: 0 });
   };
@@ -321,7 +608,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
     setShowCamera(false);
   };
 
-  const switchCamera = async () => {
+  const _switchCamera = async () => {
     const newMode = facingMode === 'user' ? 'environment' : 'user';
     setFacingMode(newMode);
     if (stream) {
@@ -371,8 +658,8 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
       const img = new Image();
       img.src = src;
       img.onload = () => {
-        const displayWidth = img.width > 512 ? 512 : img.width;
-        const displayHeight = img.height > 512 ? (img.height / img.width) * 512 : img.height;
+        const displayWidth = img.width > MAX_DISPLAY_SIZE ? MAX_DISPLAY_SIZE : img.width;
+        const displayHeight = img.height > MAX_DISPLAY_SIZE ? (img.height / img.width) * MAX_DISPLAY_SIZE : img.height;
         const newItem: CanvasItem = {
           id: generateId(),
           type: 'image',
@@ -400,7 +687,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
     setIsProcessing(true);
 
     // 计算 loading 占位区域的位置和尺寸（在视口中心）
-    const displaySize = 400;
+    const displaySize = DEFAULT_IMAGE_SIZE;
     const [w, h] = aspectRatio.split(':').map(Number);
     const ratio = w / h;
     const width = ratio >= 1 ? displaySize : displaySize * ratio;
@@ -418,6 +705,9 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         ? items.filter(item => selectedIds.includes(item.id) && item.type === 'image')
         : [];
 
+      // 设置参考图片 ID，用于显示临时连接线
+      setLoadingSourceIds(selectedImages.map(img => img.id));
+
       let newImageSrc: string;
 
       if (selectedImages.length > 0) {
@@ -431,15 +721,11 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         });
       } else {
         // 文生图模式
-        const result = await API.generateImage({
+        newImageSrc = await API.generateImage({
           prompt: currentPrompt,
           aspectRatio,
           size: resolution,
         });
-        if (!result.success || !result.imageUrl) {
-          throw new Error(result.error || '生成失败');
-        }
-        newImageSrc = result.imageUrl;
       }
 
       // 统一处理：创建新图片添加到画布（使用 ref 获取最新的 loading 位置）
@@ -451,21 +737,41 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         const finalX = currentPos?.x ?? loadingX;
         const finalY = currentPos?.y ?? loadingY;
 
+        // 使用图片的实际尺寸，缩小50%面积（宽高各乘0.707）
+        const SCALE_FACTOR = 0.707; // √0.5 ≈ 0.707
+        const actualWidth = Math.round(img.naturalWidth * SCALE_FACTOR);
+        const actualHeight = Math.round(img.naturalHeight * SCALE_FACTOR);
+
         const newItem: CanvasItem = {
           id: generateId(),
           type: 'image',
           src: newImageSrc,
           x: finalX,
           y: finalY,
-          width,
-          height,
+          width: actualWidth,
+          height: actualHeight,
           zIndex: items.length + 1,
           prompt: currentPrompt
         };
-        setItems(prev => [...prev, newItem]);
+
+        // 如果有参考图片，创建溯源连接线
+        const connectionLines: CanvasItem[] = [];
+        if (selectedImages.length > 0) {
+          // 多图时计算统一终点
+          const fixedEnd = selectedImages.length > 1
+            ? calcUnifiedEndPoint(selectedImages, newItem)
+            : undefined;
+          selectedImages.forEach(sourceImage => {
+            const connection = createConnectionCurve(sourceImage, newItem, fixedEnd);
+            connectionLines.push(connection);
+          });
+        }
+
+        setItems(prev => [...prev, ...connectionLines, newItem]);
         setSelectedIds([newItem.id]);
         setLoadingPosition(null);
         loadingPositionRef.current = null;
+        setLoadingSourceIds([]);
       };
 
     } catch (error) {
@@ -473,6 +779,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
       alert("处理失败，请检查后端服务是否正常运行。");
       setLoadingPosition(null);
       loadingPositionRef.current = null;
+      setLoadingSourceIds([]);
     } finally {
       setIsProcessing(false);
     }
@@ -480,9 +787,14 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
 
   const handleContextAction = async (action: 'upscale' | 'edit' | 'removeBg' | 'expand', payload?: string) => {
     const selectedItem = selectedIds.length > 0 ? items.find(i => i.id === selectedIds[0]) : null;
-    if (!selectedItem || isProcessing) return;
+    if (!selectedItem) return;
 
-    setIsProcessing(true);
+    const itemId = selectedItem.id;
+    // 检查该图片是否正在处理
+    if (processingIds.has(itemId)) return;
+
+    // 标记该图片正在处理
+    setProcessingIds(prev => new Set(prev).add(itemId));
     try {
       let newImageSrc = "";
 
@@ -510,7 +822,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
 
       if (newImageSrc) {
         setItems(prev => prev.map(item =>
-          item.id === selectedIds[0]
+          item.id === itemId
             ? { ...item, src: newImageSrc }
             : item
         ));
@@ -520,7 +832,12 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
       console.error(e);
       alert("操作失败，请检查后端服务是否正常运行。");
     } finally {
-      setIsProcessing(false);
+      // 移除该图片的处理状态
+      setProcessingIds(prev => {
+        const next = new Set(prev);
+        next.delete(itemId);
+        return next;
+      });
     }
   };
 
@@ -535,47 +852,18 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
 
   const handleDelete = () => {
     if (selectedIds.length === 0) return;
-    setItems(prev => prev.filter(i => !selectedIds.includes(i.id)));
-    setSelectedIds([]);
-  };
-
-  // 打开图片擦除编辑器
-  const handleOpenInpaint = () => {
-    const selectedItem = selectedIds.length > 0 ? items.find(i => i.id === selectedIds[0]) : null;
-    if (!selectedItem || selectedItem.type !== 'image') return;
-
-    setInpaintingImage({
-      id: selectedItem.id,
-      src: selectedItem.src,
-    });
-  };
-
-  // 处理图片擦除
-  const handleInpaintConfirm = async (maskDataUrl: string) => {
-    if (!inpaintingImage) return;
-
-    setInpaintingImage(null);
-    setIsProcessing(true);
-
-    try {
-      const newImageSrc = await API.inpaintImage({
-        image: inpaintingImage.src,
-        mask: maskDataUrl,
-      });
-
-      if (newImageSrc) {
-        setItems(prev => prev.map(item =>
-          item.id === inpaintingImage.id
-            ? { ...item, src: newImageSrc }
-            : item
-        ));
+    // 删除选中的元素，同时删除关联的连接线
+    setItems(prev => prev.filter(i => {
+      if (selectedIds.includes(i.id)) return false;
+      // 如果是连接线，检查源或目标是否被删除
+      if (i.type === 'connection') {
+        if (selectedIds.includes(i.sourceItemId || '') || selectedIds.includes(i.targetItemId || '')) {
+          return false;
+        }
       }
-    } catch (e) {
-      console.error('图片擦除失败:', e);
-      alert('擦除失败，请检查后端服务是否正常运行。');
-    } finally {
-      setIsProcessing(false);
-    }
+      return true;
+    }));
+    setSelectedIds([]);
   };
 
   // AI 融合 - 截取选中区域作为参考图
@@ -601,6 +889,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
 
     try {
       // 使用 html2canvas 截取画布内容区域
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const canvas = await html2canvas(canvasContentRef.current, {
         backgroundColor: '#f8f9fa',
         scale: 2, // 高清截图
@@ -610,7 +899,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         height: boundingBox.height,
         useCORS: true,
         allowTaint: true,
-      });
+      } as any);
 
       const dataUrl = canvas.toDataURL('image/png');
       setFusionReferenceImage(dataUrl);
@@ -631,13 +920,13 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
     const selectedItems = items.filter(item => selectedIds.includes(item.id));
     const maxX = Math.max(...selectedItems.map(item => item.x + item.width));
     const minY = Math.min(...selectedItems.map(item => item.y));
-    const avgHeight = selectedItems.reduce((sum, item) => sum + item.height, 0) / selectedItems.length;
+    const _avgHeight = selectedItems.reduce((sum, item) => sum + item.height, 0) / selectedItems.length;
 
     // 解析宽高比
     const [w, h] = aspectRatio.split(':').map(Number);
     const ratio = w / h;
-    const width = ratio >= 1 ? 512 : 512 * ratio;
-    const height = ratio >= 1 ? 512 / ratio : 512;
+    const width = ratio >= 1 ? MAX_DISPLAY_SIZE : MAX_DISPLAY_SIZE * ratio;
+    const height = ratio >= 1 ? MAX_DISPLAY_SIZE / ratio : MAX_DISPLAY_SIZE;
 
     // 设置 loading 位置
     const loadingPos = {
@@ -651,100 +940,71 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
 
     try {
       // 调用 AI 生成 API，传入参考图
-      const result = await API.generateImage({
+      const newImageSrc = await API.generateImage({
         prompt: fusionPrompt,
         aspectRatio,
         size: resolution,
         referenceImage: fusionReferenceImage,
       });
 
-      if (result.success && result.imageUrl) {
+      // 加载图片以获取实际尺寸
+      const img = new window.Image();
+      img.src = newImageSrc;
+      img.onload = () => {
         const pos = loadingPositionRef.current || loadingPos;
         const newItem: CanvasItem = {
           id: generateId(),
           type: 'image',
-          src: result.imageUrl,
+          src: newImageSrc,
           x: pos.x,
           y: pos.y,
-          width: pos.width,
-          height: pos.height,
+          width: Math.round(img.naturalWidth * 0.707),  // 缩小50%面积
+          height: Math.round(img.naturalHeight * 0.707),
           zIndex: Math.max(...items.map(i => i.zIndex), 0) + 1,
         };
-        setItems(prev => [...prev, newItem]);
+
+        // 为所有选中的图片创建溯源连接线
+        const connectionLines: CanvasItem[] = [];
+        const selectedImageItems = selectedItems.filter(item => item.type === 'image');
+        selectedImageItems.forEach(sourceImage => {
+          const connection = createConnectionCurve(sourceImage, newItem);
+          connectionLines.push(connection);
+        });
+
+        setItems(prev => [...prev, ...connectionLines, newItem]);
         setSelectedIds([newItem.id]);
-      }
+
+        // 清理 loading 状态
+        setLoadingPosition(null);
+        loadingPositionRef.current = null;
+      };
     } catch (error) {
       console.error('AI 融合失败:', error);
-    } finally {
-      setIsFusing(false);
+      // 失败时清理 loading 状态
       setLoadingPosition(null);
       loadingPositionRef.current = null;
+    } finally {
+      setIsFusing(false);
       setFusionReferenceImage(null);
       setFusionPrompt('');
     }
   };
 
-  // 开始裁切图片
-  const startCropping = (imageId: string) => {
-    const item = items.find(i => i.id === imageId);
-    if (!item || item.type !== 'image') return;
-    setCroppingImageId(imageId);
-    setCropBox({ x: 0, y: 0, width: item.width, height: item.height });
-  };
-
-  // 应用裁切
-  const applyCrop = () => {
-    if (!croppingImageId) return;
-    const item = items.find(i => i.id === croppingImageId);
-    if (!item || item.type !== 'image') return;
-
-    // 创建 canvas 进行裁切
-    const img = new window.Image();
-    img.src = item.src;
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      // 计算实际裁切区域（相对于原图）
-      const scaleX = img.naturalWidth / item.width;
-      const scaleY = img.naturalHeight / item.height;
-
-      canvas.width = cropBox.width * scaleX;
-      canvas.height = cropBox.height * scaleY;
-
-      ctx.drawImage(
-        img,
-        cropBox.x * scaleX,
-        cropBox.y * scaleY,
-        cropBox.width * scaleX,
-        cropBox.height * scaleY,
-        0,
-        0,
-        canvas.width,
-        canvas.height
-      );
-
-      const croppedSrc = canvas.toDataURL('image/png');
-
-      setItems(prev => prev.map(i =>
-        i.id === croppingImageId
-          ? { ...i, src: croppedSrc, width: cropBox.width, height: cropBox.height, x: i.x + cropBox.x, y: i.y + cropBox.y }
-          : i
-      ));
-
-      setCroppingImageId(null);
-    };
-  };
-
-  // 取消裁切
-  const cancelCrop = () => {
-    setCroppingImageId(null);
-  };
-
   // --- Interaction Handlers ---
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    // 如果正在裁剪，点击画布其他位置时确认裁剪
+    if (croppingImageId) {
+      // 检查是否点击在裁剪框或其手柄上（通过事件目标判断）
+      const target = e.target as HTMLElement;
+      const isCropInteraction = target.closest('[data-crop-handle]') || target.closest('[data-crop-box]');
+      if (!isCropInteraction) {
+        applyCrop();
+      }
+      // 裁剪模式下阻止所有其他交互
+      return;
+    }
+
     if (e.button === 1 || toolMode === ToolMode.PAN) {
       setIsPanning(true);
       setPanStart({ x: e.clientX, y: e.clientY });
@@ -752,6 +1012,8 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
     }
 
     const clickedItem = [...items].reverse().find(item => {
+      // 连接线不可选中
+      if (item.type === 'connection') return false;
       const screenX = item.x * scale + pan.x + (window.innerWidth / 2);
       const screenY = item.y * scale + pan.y + (window.innerHeight / 2);
       // 为线条和箭头添加最小点击区域
@@ -775,35 +1037,18 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
     if (clickedItem) {
       const isAlreadySelected = selectedIds.includes(clickedItem.id);
 
-      // 图片类型：支持多选（最多5张）
-      if (clickedItem.type === 'image') {
-        if (!isAlreadySelected) {
-          // 未选中：添加到选择列表
-          setSelectedIds(prev => {
-            if (prev.filter(id => items.find(item => item.id === id && item.type === 'image')).length >= 5) {
-              // 已达到上限，替换最早选中的
-              const imageIds = prev.filter(id => items.find(item => item.id === id && item.type === 'image'));
-              const nonImageIds = prev.filter(id => !items.find(item => item.id === id && item.type === 'image'));
-              return [...nonImageIds, ...imageIds.slice(1), clickedItem.id];
-            }
-            return [...prev, clickedItem.id];
-          });
-        }
-        // 已选中的图片：直接准备拖动，不改变选中状态
-      } else {
-        // 非图片元素：普通单选模式
-        if (!isAlreadySelected) {
-          setSelectedIds([clickedItem.id]);
-        }
+      // 点击选择：单选模式（多选只能通过框选实现）
+      if (!isAlreadySelected) {
+        setSelectedIds([clickedItem.id]);
       }
+      // 已选中的元素：直接准备拖动，不改变选中状态
 
       if (toolMode === ToolMode.SELECT) {
         setIsDragging(true);
         setDragStart({ x: e.clientX, y: e.clientY });
         setItemStart({ x: clickedItem.x, y: clickedItem.y });
-        // 保存所有选中元素的初始位置（包括当前点击的元素）
-        const currentSelectedIds = isAlreadySelected ? selectedIds :
-          (clickedItem.type === 'image' && e.shiftKey ? [...selectedIds, clickedItem.id] : [clickedItem.id]);
+        // 保存所有选中元素的初始位置
+        const currentSelectedIds = isAlreadySelected ? selectedIds : [clickedItem.id];
         const positions: Record<string, { x: number; y: number }> = {};
         items.forEach(item => {
           if (currentSelectedIds.includes(item.id)) {
@@ -841,7 +1086,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         setEditingTextId(newTextItem.id);
         setToolMode(ToolMode.SELECT);
       } else if (toolMode === ToolMode.RECTANGLE) {
-        // 创建矩形 - 拖拽绘制
+        // 创建矩形 - 拖拽绘制 (马卡龙粉色)
         const newRectItem: CanvasItem = {
           id: generateId(),
           type: 'rectangle',
@@ -851,8 +1096,8 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
           width: 0,
           height: 0,
           zIndex: items.length + 1,
-          fill: '#e5e7eb',
-          stroke: '#9ca3af',
+          fill: '#FFE4E6',
+          stroke: '#FDA4AF',
           strokeWidth: 2,
           borderRadius: 8,
         };
@@ -862,7 +1107,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         setDragStart({ x: e.clientX, y: e.clientY });
         setItemStart({ x: canvasX, y: canvasY });
       } else if (toolMode === ToolMode.CIRCLE) {
-        // 创建圆形 - 拖拽绘制
+        // 创建圆形 - 拖拽绘制 (马卡龙薄荷绿)
         const newCircleItem: CanvasItem = {
           id: generateId(),
           type: 'circle',
@@ -872,8 +1117,8 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
           width: 0,
           height: 0,
           zIndex: items.length + 1,
-          fill: '#ddd6fe',
-          stroke: '#a78bfa',
+          fill: '#D1FAE5',
+          stroke: '#6EE7B7',
           strokeWidth: 2,
         };
         setItems(prev => [...prev, newCircleItem]);
@@ -882,7 +1127,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         setDragStart({ x: e.clientX, y: e.clientY });
         setItemStart({ x: canvasX, y: canvasY });
       } else if (toolMode === ToolMode.LINE) {
-        // 创建直线 - 拖拽绘制，存储起点终点
+        // 创建直线 - 拖拽绘制 (马卡龙淡紫色)
         const newLineItem: CanvasItem = {
           id: generateId(),
           type: 'line',
@@ -892,7 +1137,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
           width: 0,
           height: 0,
           zIndex: items.length + 1,
-          stroke: '#6b7280',
+          stroke: '#C4B5FD',
           strokeWidth: 2,
           startPoint: { x: canvasX, y: canvasY },
           endPoint: { x: canvasX, y: canvasY },
@@ -903,7 +1148,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         setDragStart({ x: e.clientX, y: e.clientY });
         setItemStart({ x: canvasX, y: canvasY });
       } else if (toolMode === ToolMode.ARROW) {
-        // 创建箭头 - 拖拽绘制，存储起点终点
+        // 创建箭头 - 拖拽绘制 (马卡龙淡蓝色)
         const newArrowItem: CanvasItem = {
           id: generateId(),
           type: 'arrow',
@@ -913,7 +1158,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
           width: 0,
           height: 0,
           zIndex: items.length + 1,
-          stroke: '#6b7280',
+          stroke: '#93C5FD',
           strokeWidth: 2,
           startPoint: { x: canvasX, y: canvasY },
           endPoint: { x: canvasX, y: canvasY },
@@ -924,7 +1169,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         setDragStart({ x: e.clientX, y: e.clientY });
         setItemStart({ x: canvasX, y: canvasY });
       } else if (toolMode === ToolMode.BRUSH) {
-        // 画笔 - 开始绘制路径
+        // 画笔 - 开始绘制路径 (马卡龙淡黄色)
         const newBrushItem: CanvasItem = {
           id: generateId(),
           type: 'brush',
@@ -934,7 +1179,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
           width: 0,
           height: 0,
           zIndex: items.length + 1,
-          stroke: '#8b5cf6',
+          stroke: '#FDE68A',
           strokeWidth: 3,
           points: [{ x: canvasX, y: canvasY }],
         };
@@ -943,6 +1188,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         setIsDragging(true);
         setDragStart({ x: e.clientX, y: e.clientY });
       } else if (toolMode === ToolMode.SELECT) {
+        // 在空白处拖动触发框选
         setIsSelecting(true);
         setSelectionStart({ x: e.clientX, y: e.clientY });
         setSelectionEnd({ x: e.clientX, y: e.clientY });
@@ -951,6 +1197,16 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    // 更新鼠标位置（画布坐标）
+    const mouseCanvasX = (e.clientX - window.innerWidth / 2 - pan.x) / scale;
+    const mouseCanvasY = (e.clientY - window.innerHeight / 2 - pan.y) / scale;
+    mousePositionRef.current = { x: mouseCanvasX, y: mouseCanvasY };
+
+    // 同步光标位置给协作者
+    if (isCollabConnected) {
+      sendCursorMove(mouseCanvasX, mouseCanvasY);
+    }
+
     if (isPanning) {
       const dx = e.clientX - panStart.x;
       const dy = e.clientY - panStart.y;
@@ -992,96 +1248,104 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         }
 
         // 更新所有选中元素
-        setItems(prev => prev.map(item => {
-          if (!selectedIds.includes(item.id)) return item;
-          const itemData = multiResizeData.items[item.id];
-          if (!itemData) return item;
+        setItems(prev => {
+          const resizedItems = prev.map(item => {
+            if (!selectedIds.includes(item.id)) return item;
+            const itemData = multiResizeData.items[item.id];
+            if (!itemData) return item;
 
-          const newX = newBBX + itemData.relX * newBBWidth;
-          const newY = newBBY + itemData.relY * newBBHeight;
-          const newWidth = Math.max(20, itemData.relW * newBBWidth);
-          const newHeight = Math.max(20, itemData.relH * newBBHeight);
+            const newX = newBBX + itemData.relX * newBBWidth;
+            const newY = newBBY + itemData.relY * newBBHeight;
+            const newWidth = Math.max(20, itemData.relW * newBBWidth);
+            const newHeight = Math.max(20, itemData.relH * newBBHeight);
 
-          return { ...item, x: newX, y: newY, width: newWidth, height: newHeight };
-        }));
+            return { ...item, x: newX, y: newY, width: newWidth, height: newHeight };
+          });
+          // 实时更新连接线
+          return updateConnectionsRealtime(resizedItems, selectedIds);
+        });
         return;
       }
 
       // 单选缩放
-      setItems(prev => prev.map(item => {
-        if (item.id !== selectedIds[0]) return item;
+      setItems(prev => {
+        const resizedItems = prev.map(item => {
+          if (item.id !== selectedIds[0]) return item;
 
-        // LINE/ARROW 使用自由缩放，同时更新起点终点
-        if (item.type === 'line' || item.type === 'arrow') {
+          // LINE/ARROW 使用自由缩放，同时更新起点终点
+          if (item.type === 'line' || item.type === 'arrow') {
+            let newWidth = itemStartSize.width;
+            let newHeight = itemStartSize.height;
+            let newX = itemStartSize.x;
+            let newY = itemStartSize.y;
+
+            if (resizeCorner === 'br') {
+              newWidth = Math.max(10, itemStartSize.width + dx);
+              newHeight = Math.max(10, itemStartSize.height + dy);
+            } else if (resizeCorner === 'bl') {
+              newWidth = Math.max(10, itemStartSize.width - dx);
+              newHeight = Math.max(10, itemStartSize.height + dy);
+              newX = itemStartSize.x + (itemStartSize.width - newWidth);
+            } else if (resizeCorner === 'tr') {
+              newWidth = Math.max(10, itemStartSize.width + dx);
+              newHeight = Math.max(10, itemStartSize.height - dy);
+              newY = itemStartSize.y + (itemStartSize.height - newHeight);
+            } else if (resizeCorner === 'tl') {
+              newWidth = Math.max(10, itemStartSize.width - dx);
+              newHeight = Math.max(10, itemStartSize.height - dy);
+              newX = itemStartSize.x + (itemStartSize.width - newWidth);
+              newY = itemStartSize.y + (itemStartSize.height - newHeight);
+            }
+
+            // 更新起点终点坐标
+            const scaleX = itemStartSize.width > 0 ? newWidth / itemStartSize.width : 1;
+            const scaleY = itemStartSize.height > 0 ? newHeight / itemStartSize.height : 1;
+            let newStartPoint = item.startPoint;
+            let newEndPoint = item.endPoint;
+
+            if (item.startPoint && item.endPoint) {
+              const relStartX = item.startPoint.x - itemStartSize.x;
+              const relStartY = item.startPoint.y - itemStartSize.y;
+              const relEndX = item.endPoint.x - itemStartSize.x;
+              const relEndY = item.endPoint.y - itemStartSize.y;
+
+              newStartPoint = { x: newX + relStartX * scaleX, y: newY + relStartY * scaleY };
+              newEndPoint = { x: newX + relEndX * scaleX, y: newY + relEndY * scaleY };
+            }
+
+            return { ...item, width: newWidth, height: newHeight, x: newX, y: newY, startPoint: newStartPoint, endPoint: newEndPoint };
+          }
+
+          // 其他形状使用等比缩放
+          const ratio = itemStartSize.height > 0 ? itemStartSize.width / itemStartSize.height : 1;
           let newWidth = itemStartSize.width;
           let newHeight = itemStartSize.height;
           let newX = itemStartSize.x;
           let newY = itemStartSize.y;
 
           if (resizeCorner === 'br') {
-            newWidth = Math.max(10, itemStartSize.width + dx);
-            newHeight = Math.max(10, itemStartSize.height + dy);
+            newWidth = Math.max(50, itemStartSize.width + dx);
+            newHeight = newWidth / ratio;
           } else if (resizeCorner === 'bl') {
-            newWidth = Math.max(10, itemStartSize.width - dx);
-            newHeight = Math.max(10, itemStartSize.height + dy);
+            newWidth = Math.max(50, itemStartSize.width - dx);
+            newHeight = newWidth / ratio;
             newX = itemStartSize.x + (itemStartSize.width - newWidth);
           } else if (resizeCorner === 'tr') {
-            newWidth = Math.max(10, itemStartSize.width + dx);
-            newHeight = Math.max(10, itemStartSize.height - dy);
+            newWidth = Math.max(50, itemStartSize.width + dx);
+            newHeight = newWidth / ratio;
             newY = itemStartSize.y + (itemStartSize.height - newHeight);
           } else if (resizeCorner === 'tl') {
-            newWidth = Math.max(10, itemStartSize.width - dx);
-            newHeight = Math.max(10, itemStartSize.height - dy);
+            newWidth = Math.max(50, itemStartSize.width - dx);
+            newHeight = newWidth / ratio;
             newX = itemStartSize.x + (itemStartSize.width - newWidth);
             newY = itemStartSize.y + (itemStartSize.height - newHeight);
           }
 
-          // 更新起点终点坐标
-          const scaleX = itemStartSize.width > 0 ? newWidth / itemStartSize.width : 1;
-          const scaleY = itemStartSize.height > 0 ? newHeight / itemStartSize.height : 1;
-          let newStartPoint = item.startPoint;
-          let newEndPoint = item.endPoint;
-
-          if (item.startPoint && item.endPoint) {
-            const relStartX = item.startPoint.x - itemStartSize.x;
-            const relStartY = item.startPoint.y - itemStartSize.y;
-            const relEndX = item.endPoint.x - itemStartSize.x;
-            const relEndY = item.endPoint.y - itemStartSize.y;
-
-            newStartPoint = { x: newX + relStartX * scaleX, y: newY + relStartY * scaleY };
-            newEndPoint = { x: newX + relEndX * scaleX, y: newY + relEndY * scaleY };
-          }
-
-          return { ...item, width: newWidth, height: newHeight, x: newX, y: newY, startPoint: newStartPoint, endPoint: newEndPoint };
-        }
-
-        // 其他形状使用等比缩放
-        const ratio = itemStartSize.height > 0 ? itemStartSize.width / itemStartSize.height : 1;
-        let newWidth = itemStartSize.width;
-        let newHeight = itemStartSize.height;
-        let newX = itemStartSize.x;
-        let newY = itemStartSize.y;
-
-        if (resizeCorner === 'br') {
-          newWidth = Math.max(50, itemStartSize.width + dx);
-          newHeight = newWidth / ratio;
-        } else if (resizeCorner === 'bl') {
-          newWidth = Math.max(50, itemStartSize.width - dx);
-          newHeight = newWidth / ratio;
-          newX = itemStartSize.x + (itemStartSize.width - newWidth);
-        } else if (resizeCorner === 'tr') {
-          newWidth = Math.max(50, itemStartSize.width + dx);
-          newHeight = newWidth / ratio;
-          newY = itemStartSize.y + (itemStartSize.height - newHeight);
-        } else if (resizeCorner === 'tl') {
-          newWidth = Math.max(50, itemStartSize.width - dx);
-          newHeight = newWidth / ratio;
-          newX = itemStartSize.x + (itemStartSize.width - newWidth);
-          newY = itemStartSize.y + (itemStartSize.height - newHeight);
-        }
-
-        return { ...item, width: newWidth, height: newHeight, x: newX, y: newY };
-      }));
+          return { ...item, width: newWidth, height: newHeight, x: newX, y: newY };
+        });
+        // 实时更新连接线
+        return updateConnectionsRealtime(resizedItems, selectedIds);
+      });
       return;
     }
 
@@ -1184,47 +1448,53 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         const dx = (e.clientX - dragStart.x) / scale;
         const dy = (e.clientY - dragStart.y) / scale;
 
-        setItems(prev => prev.map(item => {
-          if (!selectedIds.includes(item.id)) return item;
+        setItems(prev => {
+          // 先移动选中的元素
+          const movedItems = prev.map(item => {
+            if (!selectedIds.includes(item.id)) return item;
 
-          // 获取该元素的初始位置
-          const startPos = itemsStartPositions[item.id] || { x: item.x, y: item.y };
-          const newX = startPos.x + dx;
-          const newY = startPos.y + dy;
+            // 获取该元素的初始位置
+            const startPos = itemsStartPositions[item.id] || { x: item.x, y: item.y };
+            const newX = startPos.x + dx;
+            const newY = startPos.y + dy;
 
-          // 画笔需要同时移动所有点
-          if (item.type === 'brush' && item.points) {
-            const offsetX = newX - item.x;
-            const offsetY = newY - item.y;
-            return {
-              ...item,
-              x: newX,
-              y: newY,
-              points: item.points.map(p => ({ x: p.x + offsetX, y: p.y + offsetY }))
-            };
-          }
+            // 画笔需要同时移动所有点
+            if (item.type === 'brush' && item.points) {
+              const offsetX = newX - item.x;
+              const offsetY = newY - item.y;
+              return {
+                ...item,
+                x: newX,
+                y: newY,
+                points: item.points.map(p => ({ x: p.x + offsetX, y: p.y + offsetY }))
+              };
+            }
 
-          // 直线和箭头移动时需要同时移动起点和终点
-          if ((item.type === 'line' || item.type === 'arrow') && item.startPoint && item.endPoint) {
-            const offsetX = newX - item.x;
-            const offsetY = newY - item.y;
-            return {
-              ...item,
-              x: newX,
-              y: newY,
-              startPoint: {
-                x: item.startPoint.x + offsetX,
-                y: item.startPoint.y + offsetY
-              },
-              endPoint: {
-                x: item.endPoint.x + offsetX,
-                y: item.endPoint.y + offsetY
-              }
-            };
-          }
+            // 直线和箭头移动时需要同时移动起点和终点
+            if ((item.type === 'line' || item.type === 'arrow') && item.startPoint && item.endPoint) {
+              const offsetX = newX - item.x;
+              const offsetY = newY - item.y;
+              return {
+                ...item,
+                x: newX,
+                y: newY,
+                startPoint: {
+                  x: item.startPoint.x + offsetX,
+                  y: item.startPoint.y + offsetY
+                },
+                endPoint: {
+                  x: item.endPoint.x + offsetX,
+                  y: item.endPoint.y + offsetY
+                }
+              };
+            }
 
-          return { ...item, x: newX, y: newY };
-        }));
+            return { ...item, x: newX, y: newY };
+          });
+
+          // 实时更新关联的连接线
+          return updateConnectionsRealtime(movedItems, selectedIds);
+        });
       }
     }
   };
@@ -1241,6 +1511,8 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
       if (maxX - minX > 5 || maxY - minY > 5) {
         // 选中所有与框相交的物品
         const selectedItems = items.filter(item => {
+          // 连接线不可选中
+          if (item.type === 'connection') return false;
           const screenX = item.x * scale + pan.x + (window.innerWidth / 2);
           const screenY = item.y * scale + pan.y + (window.innerHeight / 2);
           const screenW = item.width * scale;
@@ -1287,6 +1559,11 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         setSelectedIds([]);
       }
       setToolMode(ToolMode.SELECT);
+    }
+
+    // 拖动或缩放结束时，更新关联的连接线
+    if ((isDragging || isResizing) && selectedIds.length > 0) {
+      updateConnections(selectedIds);
     }
 
     setIsPanning(false);
@@ -1352,7 +1629,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
       // 双指捏合缩放 - 以鼠标位置为焦点
       e.preventDefault();
       const delta = e.deltaY > 0 ? -0.03 : 0.03;
-      const newScale = Math.min(Math.max(0.1, scale + delta), 5);
+      const newScale = Math.min(Math.max(MIN_SCALE, scale + delta), MAX_SCALE);
 
       // 鼠标相对于屏幕中心的位置
       const mouseX = e.clientX - window.innerWidth / 2;
@@ -1409,8 +1686,8 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         const img = new Image();
         img.src = src;
         img.onload = () => {
-          const width = img.width > 512 ? 512 : img.width;
-          const height = img.height > 512 ? (img.height / img.width) * 512 : img.height;
+          const width = img.width > MAX_DISPLAY_SIZE ? MAX_DISPLAY_SIZE : img.width;
+          const height = img.height > MAX_DISPLAY_SIZE ? (img.height / img.width) * MAX_DISPLAY_SIZE : img.height;
           const newItem: CanvasItem = {
             id: generateId(),
             type: 'image',
@@ -1480,16 +1757,20 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
           </div>
         </div>
 
-        <div className="flex items-center gap-3 pointer-events-auto">
-          <button className="flex items-center gap-2 px-4 py-2 bg-violet-500 shadow-sm rounded-lg hover:bg-violet-600 transition-all text-sm font-medium text-white">
-            <Share2 size={16} />
-            分享
-          </button>
+        <div className="flex items-center gap-2 pointer-events-auto">
+          {/* 分享与协作 */}
+          <SharePanel
+            collaborators={collaborators}
+            isConnected={isCollabConnected}
+            myColor={myColor}
+            projectId={project.id}
+            projectName={projectName}
+          />
         </div>
       </div>
 
       {/* --- Left Tool Rail --- */}
-      <div className="fixed left-4 flex flex-col items-center gap-1 p-2 bg-gray-100/90 backdrop-blur-sm shadow-lg rounded-full z-40" style={{ top: 'calc(50% + 32px)', transform: 'translateY(-50%)' }}>
+      <div className="fixed left-4 flex flex-col items-center gap-1 p-2 bg-gray-100/90 backdrop-blur-sm shadow-lg rounded-full z-40" style={{ top: '50%', transform: 'translateY(-50%)' }}>
         {/* 选择 */}
         <Tooltip content="选择 (V)" side="right">
           <button
@@ -1524,68 +1805,59 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
             </button>
           </Tooltip>
 
-          {/* 形状展开菜单 */}
+          {/* 形状展开菜单 - 马卡龙色块 */}
           {showCreativeTools && (
-            <div className="absolute left-full top-1/2 -translate-y-1/2 ml-3 flex gap-1 p-2 bg-gray-100/90 backdrop-blur-sm shadow-lg rounded-full z-50 animate-in slide-in-from-left-2 fade-in duration-200">
+            <div className="absolute left-full top-1/2 -translate-y-1/2 ml-3 flex gap-2 p-2.5 bg-white/95 backdrop-blur-sm shadow-lg rounded-2xl z-50 animate-in slide-in-from-left-2 fade-in duration-200 border border-gray-100">
               <Tooltip content="文字 (T)" side="top">
                 <button
-                  className={`p-2.5 rounded-full transition-all duration-200 ease-out ${toolMode === ToolMode.TEXT ? 'bg-gray-800 text-white shadow-md scale-105' : 'text-gray-500 hover:bg-gray-200/50 hover:scale-105'}`}
+                  className={`w-9 h-9 rounded-xl bg-amber-200 hover:bg-amber-300 transition-all duration-200 ease-out flex items-center justify-center ${toolMode === ToolMode.TEXT ? 'ring-2 ring-amber-400 ring-offset-2 scale-110 shadow-md' : 'hover:scale-105'}`}
                   onClick={() => { setToolMode(ToolMode.TEXT); setShowCreativeTools(false); }}
                 >
-                  <Type size={18} />
+                  <Type size={16} className="text-amber-700" />
                 </button>
               </Tooltip>
               <Tooltip content="直线 (L)" side="top">
                 <button
-                  className={`p-2.5 rounded-full transition-all duration-200 ease-out ${toolMode === ToolMode.LINE ? 'bg-gray-800 text-white shadow-md scale-105' : 'text-gray-500 hover:bg-gray-200/50 hover:scale-105'}`}
+                  className={`w-9 h-9 rounded-xl bg-violet-200 hover:bg-violet-300 transition-all duration-200 ease-out flex items-center justify-center ${toolMode === ToolMode.LINE ? 'ring-2 ring-violet-400 ring-offset-2 scale-110 shadow-md' : 'hover:scale-105'}`}
                   onClick={() => { setToolMode(ToolMode.LINE); setShowCreativeTools(false); }}
                 >
-                  <Minus size={18} />
+                  <Minus size={16} className="text-violet-700" />
                 </button>
               </Tooltip>
               <Tooltip content="箭头 (A)" side="top">
                 <button
-                  className={`p-2.5 rounded-full transition-all duration-200 ease-out ${toolMode === ToolMode.ARROW ? 'bg-gray-800 text-white shadow-md scale-105' : 'text-gray-500 hover:bg-gray-200/50 hover:scale-105'}`}
+                  className={`w-9 h-9 rounded-xl bg-sky-200 hover:bg-sky-300 transition-all duration-200 ease-out flex items-center justify-center ${toolMode === ToolMode.ARROW ? 'ring-2 ring-sky-400 ring-offset-2 scale-110 shadow-md' : 'hover:scale-105'}`}
                   onClick={() => { setToolMode(ToolMode.ARROW); setShowCreativeTools(false); }}
                 >
-                  <MoveRight size={18} />
+                  <MoveRight size={16} className="text-sky-700" />
                 </button>
               </Tooltip>
               <Tooltip content="矩形 (R)" side="top">
                 <button
-                  className={`p-2.5 rounded-full transition-all duration-200 ease-out ${toolMode === ToolMode.RECTANGLE ? 'bg-gray-800 text-white shadow-md scale-105' : 'text-gray-500 hover:bg-gray-200/50 hover:scale-105'}`}
+                  className={`w-9 h-9 rounded-xl bg-rose-200 hover:bg-rose-300 transition-all duration-200 ease-out flex items-center justify-center ${toolMode === ToolMode.RECTANGLE ? 'ring-2 ring-rose-400 ring-offset-2 scale-110 shadow-md' : 'hover:scale-105'}`}
                   onClick={() => { setToolMode(ToolMode.RECTANGLE); setShowCreativeTools(false); }}
                 >
-                  <Square size={18} />
+                  <Square size={16} className="text-rose-700" />
                 </button>
               </Tooltip>
               <Tooltip content="圆形 (O)" side="top">
                 <button
-                  className={`p-2.5 rounded-full transition-all duration-200 ease-out ${toolMode === ToolMode.CIRCLE ? 'bg-gray-800 text-white shadow-md scale-105' : 'text-gray-500 hover:bg-gray-200/50 hover:scale-105'}`}
+                  className={`w-9 h-9 rounded-xl bg-emerald-200 hover:bg-emerald-300 transition-all duration-200 ease-out flex items-center justify-center ${toolMode === ToolMode.CIRCLE ? 'ring-2 ring-emerald-400 ring-offset-2 scale-110 shadow-md' : 'hover:scale-105'}`}
                   onClick={() => { setToolMode(ToolMode.CIRCLE); setShowCreativeTools(false); }}
                 >
-                  <Circle size={18} />
+                  <Circle size={16} className="text-emerald-700" />
                 </button>
               </Tooltip>
             </div>
           )}
         </div>
 
-        {/* AI 助手 */}
-        <Tooltip content="AI 助手" side="right">
-          <button
-            className={`relative p-2 rounded-full transition-all duration-200 ease-out ${isChatOpen ? 'bg-violet-100 scale-105' : 'hover:bg-gray-200/50 hover:scale-105'}`}
-            onClick={() => setIsChatOpen(!isChatOpen)}
-          >
-            <Logo size={28} showText={false} />
-          </button>
-        </Tooltip>
       </div>
 
       {/* --- Main Canvas --- */}
       <div
         ref={canvasRef}
-        className={`flex-1 relative cursor-default overflow-hidden transition-colors ${isDragOver ? 'bg-violet-50/50' : ''}`}
+        className={`flex-1 relative cursor-default overflow-hidden transition-colors ${isDragOver ? 'bg-gray-100' : 'bg-gray-50'}`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -1617,10 +1889,14 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
             // 为线条和箭头添加最小尺寸，确保选择框可见
             const isLineType = item.type === 'line' || item.type === 'arrow';
             const minSize = isLineType ? 20 : 0;
-            const displayWidth = Math.max(item.width, minSize);
-            const displayHeight = Math.max(item.height, minSize);
-            const offsetX = isLineType && item.width < minSize ? -(minSize - item.width) / 2 : 0;
-            const offsetY = isLineType && item.height < minSize ? -(minSize - item.height) / 2 : 0;
+            // 裁剪模式下使用原始尺寸
+            const isCropping = croppingImageId === item.id;
+            const effectiveWidth = isCropping ? (item.originalWidth || item.width) : item.width;
+            const effectiveHeight = isCropping ? (item.originalHeight || item.height) : item.height;
+            const displayWidth = Math.max(effectiveWidth, minSize);
+            const displayHeight = Math.max(effectiveHeight, minSize);
+            const offsetX = isLineType && effectiveWidth < minSize ? -(minSize - effectiveWidth) / 2 : 0;
+            const offsetY = isLineType && effectiveHeight < minSize ? -(minSize - effectiveHeight) / 2 : 0;
             return (
               <div
                 key={item.id}
@@ -1630,11 +1906,11 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                   top: item.y + offsetY,
                   width: displayWidth,
                   height: displayHeight,
-                  zIndex: item.zIndex
+                  zIndex: (maskEditingId === item.id || isSelected) ? 9999 : item.zIndex,
                 }}
               >
-                {/* 选中边框 - 单选时显示完整边框和手柄 */}
-                {isSelected && selectedIds.length === 1 && (
+                {/* 选中边框 - 单选时显示完整边框和手柄（裁剪时隐藏） */}
+                {isSelected && selectedIds.length === 1 && croppingImageId !== item.id && (
                   <>
                     {/* 外发光 */}
                     <div className="absolute -inset-3 rounded-2xl bg-primary/10 blur-md pointer-events-none" />
@@ -1659,10 +1935,6 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                     />
                   </>
                 )}
-                {/* 多选时单个元素只显示简单边框 */}
-                {isSelected && selectedIds.length > 1 && (
-                  <div className="absolute -inset-1 rounded-lg border-2 border-primary/40 pointer-events-none" />
-                )}
                 {/* 悬停边框 */}
                 {!isSelected && (
                   <div className="absolute -inset-1 rounded-xl border border-transparent group-hover:border-gray-300 pointer-events-none transition-colors" />
@@ -1671,17 +1943,251 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                 {item.type === 'image' && (
                   <>
                     <img
-                      src={item.src}
+                      src={isCropping ? (item.originalSrc || item.src) : item.src}
                       alt="canvas item"
-                      className="w-full h-full object-cover rounded-lg shadow-lg cursor-pointer"
+                      className={`w-full h-full rounded-lg shadow-lg cursor-pointer ${isCropping ? 'opacity-40' : 'object-cover'}`}
                       draggable={false}
                       onDoubleClick={(e) => {
                         e.stopPropagation();
                         startCropping(item.id);
                       }}
                     />
+                    {/* 裁剪模式 - 内联裁剪框 */}
+                    {isCropping && (() => {
+                      const origW = item.originalWidth || item.width;
+                      const origH = item.originalHeight || item.height;
+                      const origSrc = item.originalSrc || item.src;
+                      return (
+                      <>
+                        {/* 裁剪框 - 使用 background-image 精确定位 */}
+                        <div
+                          data-crop-box
+                          className="absolute ring-[3px] ring-violet-500 pointer-events-auto cursor-move"
+                          style={{
+                            left: cropBox.x,
+                            top: cropBox.y,
+                            width: cropBox.width,
+                            height: cropBox.height,
+                            backgroundImage: `url(${origSrc})`,
+                            backgroundSize: `${origW}px ${origH}px`,
+                            backgroundPosition: `-${cropBox.x}px -${cropBox.y}px`,
+                            backgroundRepeat: 'no-repeat',
+                          }}
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            const startX = e.clientX;
+                            const startY = e.clientY;
+                            const startCropX = cropBox.x;
+                            const startCropY = cropBox.y;
+                            const handleMove = (moveE: MouseEvent) => {
+                              const dx = (moveE.clientX - startX) / scale;
+                              const dy = (moveE.clientY - startY) / scale;
+                              setCropBox(prev => ({
+                                ...prev,
+                                x: Math.max(0, Math.min(origW - prev.width, startCropX + dx)),
+                                y: Math.max(0, Math.min(origH - prev.height, startCropY + dy)),
+                              }));
+                            };
+                            const handleUp = () => {
+                              document.removeEventListener('mousemove', handleMove);
+                              document.removeEventListener('mouseup', handleUp);
+                            };
+                            document.addEventListener('mousemove', handleMove);
+                            document.addEventListener('mouseup', handleUp);
+                          }}
+                        />
+                        {/* 四角拖拽手柄 - L形角标 */}
+                        {['tl', 'tr', 'bl', 'br'].map((corner) => {
+                          const isTop = corner.includes('t');
+                          const isLeft = corner.includes('l');
+                          const size = 20;
+                          const thickness = 4;
+                          return (
+                            <div
+                              key={corner}
+                              data-crop-handle
+                              className="absolute z-10 pointer-events-auto"
+                              style={{
+                                left: isLeft ? cropBox.x - thickness : cropBox.x + cropBox.width - size,
+                                top: isTop ? cropBox.y - thickness : cropBox.y + cropBox.height - size,
+                                width: size + thickness,
+                                height: size + thickness,
+                                cursor: (isTop === isLeft) ? 'nwse-resize' : 'nesw-resize',
+                              }}
+                              onMouseDown={(e) => {
+                                e.stopPropagation();
+                                const startX = e.clientX;
+                                const startY = e.clientY;
+                                const startBox = { ...cropBox };
+                                const handleMove = (moveE: MouseEvent) => {
+                                  const dx = (moveE.clientX - startX) / scale;
+                                  const dy = (moveE.clientY - startY) / scale;
+                                  let newBox = { ...startBox };
+                                  if (isLeft) {
+                                    newBox.x = Math.max(0, Math.min(startBox.x + startBox.width - 50, startBox.x + dx));
+                                    newBox.width = startBox.width - (newBox.x - startBox.x);
+                                  } else {
+                                    newBox.width = Math.max(50, Math.min(origW - startBox.x, startBox.width + dx));
+                                  }
+                                  if (isTop) {
+                                    newBox.y = Math.max(0, Math.min(startBox.y + startBox.height - 50, startBox.y + dy));
+                                    newBox.height = startBox.height - (newBox.y - startBox.y);
+                                  } else {
+                                    newBox.height = Math.max(50, Math.min(origH - startBox.y, startBox.height + dy));
+                                  }
+                                  setCropBox(newBox);
+                                };
+                                const handleUp = () => {
+                                  document.removeEventListener('mousemove', handleMove);
+                                  document.removeEventListener('mouseup', handleUp);
+                                };
+                                document.addEventListener('mousemove', handleMove);
+                                document.addEventListener('mouseup', handleUp);
+                              }}
+                            >
+                              {/* L形角标 - 水平线 */}
+                              <div
+                                className="absolute"
+                                style={{
+                                  width: size,
+                                  height: thickness,
+                                  left: isLeft ? 0 : thickness,
+                                  top: isTop ? 0 : size,
+                                  backgroundColor: '#4F46E5',
+                                }}
+                              />
+                              {/* L形角标 - 垂直线 */}
+                              <div
+                                className="absolute"
+                                style={{
+                                  width: thickness,
+                                  height: size + thickness,
+                                  left: isLeft ? 0 : size,
+                                  top: 0,
+                                  backgroundColor: '#4F46E5',
+                                }}
+                              />
+                            </div>
+                          );
+                        })}
+                      </>
+                    );})()}
+                    {/* 遮罩编辑模式 - 内联在图片上 */}
+                    {maskEditingId === item.id && (
+                      <>
+                        {/* 遮罩绘制 canvas */}
+                        <canvas
+                          ref={maskCanvasRef}
+                          width={item.width}
+                          height={item.height}
+                          className="absolute inset-0 rounded-lg pointer-events-auto"
+                          style={{
+                            width: item.width,
+                            height: item.height,
+                            cursor: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='${maskBrushSize}' height='${maskBrushSize}' viewBox='0 0 ${maskBrushSize} ${maskBrushSize}'%3E%3Ccircle cx='${maskBrushSize/2}' cy='${maskBrushSize/2}' r='${maskBrushSize/2 - 1}' fill='rgba(59,130,246,0.3)' stroke='white' stroke-width='1'/%3E%3C/svg%3E") ${maskBrushSize/2} ${maskBrushSize/2}, crosshair`,
+                          }}
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            setIsMaskDrawing(true);
+                            resetLastPoint();
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const x = (e.clientX - rect.left) * (item.width / rect.width);
+                            const y = (e.clientY - rect.top) * (item.height / rect.height);
+                            drawMaskBrush(x, y, true);
+                          }}
+                          onMouseMove={(e) => {
+                            if (!isMaskDrawing) return;
+                            e.stopPropagation();
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const x = (e.clientX - rect.left) * (item.width / rect.width);
+                            const y = (e.clientY - rect.top) * (item.height / rect.height);
+                            drawMaskBrush(x, y, false);
+                          }}
+                          onMouseUp={() => {
+                            setIsMaskDrawing(false);
+                            resetLastPoint();
+                          }}
+                          onMouseLeave={() => {
+                            setIsMaskDrawing(false);
+                            resetLastPoint();
+                          }}
+                        />
+                        {/* 遮罩编辑工具栏 */}
+                        <div
+                          className="absolute left-1/2 z-10"
+                          style={{
+                            top: -60 / scale,
+                            transform: `translateX(-50%) scale(${1 / scale})`,
+                            transformOrigin: 'bottom center',
+                          }}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="bg-white/95 backdrop-blur-xl border border-gray-200 rounded-xl shadow-lg px-3 py-2 flex items-center gap-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-2 h-2 rounded-full bg-blue-400" />
+                              <input
+                                type="range"
+                                min="5"
+                                max="100"
+                                value={maskBrushSize}
+                                onChange={(e) => setMaskBrushSize(Number(e.target.value))}
+                                className="w-24 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                              />
+                              <div className="w-4 h-4 rounded-full bg-blue-400" />
+                            </div>
+                            <div className="w-px h-5 bg-gray-200" />
+                            <button onClick={handleClearMask} className="px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded-lg">清空</button>
+                            <div className="w-px h-5 bg-gray-200" />
+                            <button onClick={handleCancelMaskEdit} className="px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 rounded-lg">取消</button>
+                            <button
+                              onClick={handleConfirmMaskEdit}
+                              disabled={!hasMaskContent || (maskEditMode === 'repaint' && !repaintPrompt.trim())}
+                              className="px-3 py-1 text-xs bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg"
+                            >
+                              {maskEditMode === 'erase' ? '擦除' : '重绘'}
+                            </button>
+                          </div>
+                        </div>
+                        {maskEditMode === 'repaint' && hasMaskContent && (
+                          <div
+                            className="absolute z-10"
+                            style={{ right: -300 / scale, top: '50%', transform: `translateY(-50%) scale(${1 / scale})`, transformOrigin: 'left center' }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="flex items-center bg-white rounded-full shadow-lg border border-gray-200 px-4 py-2 min-w-[260px]">
+                              <input
+                                type="text"
+                                value={repaintPrompt}
+                                onChange={(e) => setRepaintPrompt(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === 'Enter' && repaintPrompt.trim()) handleConfirmMaskEdit(); }}
+                                placeholder="描述想重绘的内容..."
+                                className="flex-1 bg-transparent border-none focus:outline-none text-gray-700 text-sm placeholder-gray-400"
+                                autoFocus
+                              />
+                              <button
+                                onClick={handleConfirmMaskEdit}
+                                disabled={!repaintPrompt.trim()}
+                                className="ml-2 p-1.5 rounded-full bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white transition-colors"
+                              >
+                                <ArrowRight size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {!hasMaskContent && (
+                          <div
+                            className="absolute left-1/2 text-white/80 text-sm bg-black/50 px-3 py-1 rounded-full pointer-events-none"
+                            style={{ bottom: -40 / scale, transform: `translateX(-50%) scale(${1 / scale})`, transformOrigin: 'top center' }}
+                          >
+                            {maskEditMode === 'erase' ? '涂抹要擦除的区域' : '涂抹要重绘的区域'}
+                          </div>
+                        )}
+                      </>
+                    )}
                     {/* 多图选中时显示序号 */}
-                    {isSelected && selectedIds.filter(id => items.find(i => i.id === id && i.type === 'image')).length > 1 && (
+                    {isSelected && selectedIds.filter(id => items.find(i => i.id === id && i.type === 'image')).length > 1 && !croppingImageId && !maskEditingId && (
                       <div
                         className="absolute top-2 left-2 bg-violet-500 text-white text-sm font-bold rounded-full w-7 h-7 flex items-center justify-center shadow-lg pointer-events-none"
                         style={{ transform: `scale(${1 / scale})`, transformOrigin: 'top left' }}
@@ -1845,18 +2351,59 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                     />
                   </svg>
                 )}
-                {/* Context Toolbar anchored to item - only for single selected images */}
-                {isSelected && selectedIds.length === 1 && !isPanning && !isDragging && item.type === 'image' && (
+
+                {/* 溯源连接线（贝塞尔曲线）*/}
+                {item.type === 'connection' && item.startPoint && item.endPoint && (() => {
+                  const sx = item.startPoint.x - item.x;
+                  const sy = item.startPoint.y - item.y;
+                  const ex = item.endPoint.x - item.x;
+                  const ey = item.endPoint.y - item.y;
+                  const dx = ex - sx;
+                  const dy = ey - sy;
+                  const isVertical = Math.abs(dy) > Math.abs(dx);
+                  // 根据方向选择控制点偏移
+                  const offset = isVertical ? Math.abs(dy) * 0.4 : Math.abs(dx) * 0.4;
+                  const pathD = isVertical
+                    ? `M ${sx} ${sy} C ${sx} ${sy + (dy > 0 ? offset : -offset)}, ${ex} ${ey + (dy > 0 ? -offset : offset)}, ${ex} ${ey}`
+                    : `M ${sx} ${sy} C ${sx + (dx > 0 ? offset : -offset)} ${sy}, ${ex + (dx > 0 ? -offset : offset)} ${ey}, ${ex} ${ey}`;
+                  return (
+                    <svg
+                      className="absolute overflow-visible pointer-events-none"
+                      style={{
+                        left: 0,
+                        top: 0,
+                        width: Math.max(item.width, 1),
+                        height: Math.max(item.height, 1)
+                      }}
+                    >
+                      <path
+                        d={pathD}
+                        stroke={item.stroke || '#a78bfa'}
+                        strokeWidth={item.strokeWidth || 3}
+                        fill="none"
+                        strokeLinecap="round"
+                        opacity="0.6"
+                      />
+                      {/* 起点圆点 */}
+                      <circle cx={sx} cy={sy} r="4" fill={item.stroke || '#a78bfa'} opacity="0.8" />
+                      {/* 终点圆点 */}
+                      <circle cx={ex} cy={ey} r="4" fill={item.stroke || '#a78bfa'} opacity="0.8" />
+                    </svg>
+                  );
+                })()}
+                {/* Context Toolbar anchored to item - only for single selected images (not in mask editing mode) */}
+                {isSelected && selectedIds.length === 1 && !isPanning && !isDragging && item.type === 'image' && !maskEditingId && (
                   <div className="absolute top-0 left-1/2" style={{ transform: `translateX(-50%) scale(${1 / scale})`, transformOrigin: 'bottom center' }}>
                     <FloatingToolbar
                       onUpscale={() => handleContextAction('upscale')}
                       onRemoveBg={() => handleContextAction('removeBg')}
                       onExpand={() => handleContextAction('expand')}
                       onEdit={(p) => handleContextAction('edit', p)}
-                      onInpaint={handleOpenInpaint}
+                      onInpaint={() => handleOpenMaskEdit('erase')}
+                      onRepaint={() => handleOpenMaskEdit('repaint')}
                       onDelete={handleDelete}
                       onDownload={handleDownload}
-                      isProcessing={isProcessing}
+                      isProcessing={processingIds.has(item.id)}
                     />
                   </div>
                 )}
@@ -1910,46 +2457,20 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                 {/* 边框 */}
                 <div className="absolute inset-0 rounded-xl border-2 border-primary/60 border-dashed pointer-events-none" />
                 {/* 四角手柄 */}
-                <div
-                  className="absolute -top-2 -left-2 w-4 h-4 bg-white border-2 border-primary rounded-full shadow-md cursor-nwse-resize hover:scale-125 transition-transform"
-                  onMouseDown={(e) => handleResizeStart(e, 'tl')}
-                />
-                <div
-                  className="absolute -top-2 -right-2 w-4 h-4 bg-white border-2 border-primary rounded-full shadow-md cursor-nesw-resize hover:scale-125 transition-transform"
-                  onMouseDown={(e) => handleResizeStart(e, 'tr')}
-                />
-                <div
-                  className="absolute -bottom-2 -left-2 w-4 h-4 bg-white border-2 border-primary rounded-full shadow-md cursor-nesw-resize hover:scale-125 transition-transform"
-                  onMouseDown={(e) => handleResizeStart(e, 'bl')}
-                />
-                <div
-                  className="absolute -bottom-2 -right-2 w-4 h-4 bg-white border-2 border-primary rounded-full shadow-md cursor-nwse-resize hover:scale-125 transition-transform"
-                  onMouseDown={(e) => handleResizeStart(e, 'br')}
-                />
+                <div className="absolute -top-2 -left-2 w-4 h-4 bg-white border-2 border-primary rounded-full shadow-md cursor-nwse-resize hover:scale-125 transition-transform" onMouseDown={(e) => handleResizeStart(e, 'tl')} />
+                <div className="absolute -top-2 -right-2 w-4 h-4 bg-white border-2 border-primary rounded-full shadow-md cursor-nesw-resize hover:scale-125 transition-transform" onMouseDown={(e) => handleResizeStart(e, 'tr')} />
+                <div className="absolute -bottom-2 -left-2 w-4 h-4 bg-white border-2 border-primary rounded-full shadow-md cursor-nesw-resize hover:scale-125 transition-transform" onMouseDown={(e) => handleResizeStart(e, 'bl')} />
+                <div className="absolute -bottom-2 -right-2 w-4 h-4 bg-white border-2 border-primary rounded-full shadow-md cursor-nwse-resize hover:scale-125 transition-transform" onMouseDown={(e) => handleResizeStart(e, 'br')} />
                 {/* 多选工具栏 */}
                 {!isPanning && !isDragging && (
-                  <div
-                    style={{ transform: `scale(${1 / scale})`, transformOrigin: 'top center' }}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => e.stopPropagation()}
-                  >
+                  <div style={{ transform: `scale(${1 / scale})`, transformOrigin: 'top center' }} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
                     <div className="absolute top-[-50px] left-1/2 -translate-x-1/2 z-50 flex items-center gap-2">
-                      {/* AI 融合按钮 */}
-                      <button
-                        onClick={handleAIFusion}
-                        className="px-3 py-2 bg-gradient-to-r from-violet-500 to-purple-600 rounded-lg shadow-lg text-white hover:from-violet-600 hover:to-purple-700 transition-all flex items-center gap-2 group"
-                        title="AI 融合 - 将选中元素作为参考生成新图像"
-                      >
+                      <button onClick={handleAIFusion} className="px-3 py-2 bg-gradient-to-r from-violet-500 to-purple-600 rounded-lg shadow-lg text-white hover:from-violet-600 hover:to-purple-700 transition-all flex items-center gap-2 group" title="AI 融合 - 将选中元素作为参考生成新图像">
                         <Wand2 size={16} className="group-hover:rotate-12 transition-transform" />
                         <span className="text-xs font-medium">AI 融合</span>
                         <Sparkles size={12} className="opacity-70" />
                       </button>
-                      {/* 删除按钮 */}
-                      <button
-                        onClick={handleDelete}
-                        className="p-2 bg-white rounded-lg shadow-lg border border-gray-200 text-gray-600 hover:text-red-500 hover:bg-red-50 transition-colors flex items-center gap-1.5"
-                        title={`删除 ${selectedIds.length} 个元素`}
-                      >
+                      <button onClick={handleDelete} className="p-2 bg-white rounded-lg shadow-lg border border-gray-200 text-gray-600 hover:text-red-500 hover:bg-red-50 transition-colors flex items-center gap-1.5" title={`删除 ${selectedIds.length} 个元素`}>
                         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>
                         <span className="text-xs font-medium">{selectedIds.length}</span>
                       </button>
@@ -1957,52 +2478,125 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                   </div>
                 )}
               </div>
-            );
-          })()}
+            );          })()}
 
           {/* AI 生成中 Loading 状态 - 在画布内渲染 */}
           {isProcessing && loadingPosition && (
-            <div
-              className="absolute rounded-xl cursor-move bg-gray-50 border-2 border-dashed border-gray-300 z-50"
-              style={{
-                left: loadingPosition.x,
-                top: loadingPosition.y,
-                width: loadingPosition.width,
-                height: loadingPosition.height,
-              }}
-              onMouseDown={(e) => {
-                e.stopPropagation();
-                const startX = e.clientX;
-                const startY = e.clientY;
-                const startPosX = loadingPosition.x;
-                const startPosY = loadingPosition.y;
+            <>
+              {/* 临时连接线：从参考图片到占位框（就近原则）*/}
+              {loadingSourceIds.length > 0 && (() => {
+                // 计算统一终点
+                const sourceItems = loadingSourceIds
+                  .map(id => items.find(i => i.id === id))
+                  .filter((s): s is CanvasItem => !!s);
+                if (sourceItems.length === 0) return null;
 
-                const handleMouseMove = (moveEvent: MouseEvent) => {
-                  const dx = (moveEvent.clientX - startX) / scale;
-                  const dy = (moveEvent.clientY - startY) / scale;
-                  const newPos = {
-                    ...loadingPosition,
-                    x: startPosX + dx,
-                    y: startPosY + dy,
+                const gap = 12;
+                const avgX = sourceItems.reduce((sum, s) => sum + s.x + s.width / 2, 0) / sourceItems.length;
+                const avgY = sourceItems.reduce((sum, s) => sum + s.y + s.height / 2, 0) / sourceItems.length;
+                const tCx = loadingPosition.x + loadingPosition.width / 2;
+                const tCy = loadingPosition.y + loadingPosition.height / 2;
+                const ddx = tCx - avgX;
+                const ddy = tCy - avgY;
+                const isVertical = Math.abs(ddy) > Math.abs(ddx);
+                // 统一终点
+                const fixedEndX = !isVertical
+                  ? (ddx > 0 ? loadingPosition.x - gap : loadingPosition.x + loadingPosition.width + gap)
+                  : tCx;
+                const fixedEndY = isVertical
+                  ? (ddy > 0 ? loadingPosition.y - gap : loadingPosition.y + loadingPosition.height + gap)
+                  : tCy;
+
+                return sourceItems.map(sourceItem => {
+                  const sCx = sourceItem.x + sourceItem.width / 2;
+                  const sCy = sourceItem.y + sourceItem.height / 2;
+                  const dx = fixedEndX - sCx;
+                  const dy = fixedEndY - sCy;
+                  const startX = !isVertical
+                    ? (dx > 0 ? sourceItem.x + sourceItem.width + gap : sourceItem.x - gap)
+                    : sCx;
+                  const startY = isVertical
+                    ? (dy > 0 ? sourceItem.y + sourceItem.height + gap : sourceItem.y - gap)
+                    : sCy;
+
+                  const svgX = Math.min(startX, fixedEndX) - 20;
+                  const svgY = Math.min(startY, fixedEndY) - 20;
+                  const svgW = Math.abs(fixedEndX - startX) + 40;
+                  const svgH = Math.abs(fixedEndY - startY) + 40;
+                  const sx = startX - svgX;
+                  const sy = startY - svgY;
+                  const ex = fixedEndX - svgX;
+                  const ey = fixedEndY - svgY;
+                  const offset = isVertical ? Math.abs(ey - sy) * 0.4 : Math.abs(ex - sx) * 0.4;
+                  const pathD = isVertical
+                    ? `M ${sx} ${sy} C ${sx} ${sy + (dy > 0 ? offset : -offset)}, ${ex} ${ey + (dy > 0 ? -offset : offset)}, ${ex} ${ey}`
+                    : `M ${sx} ${sy} C ${sx + (dx > 0 ? offset : -offset)} ${sy}, ${ex + (dx > 0 ? -offset : offset)} ${ey}, ${ex} ${ey}`;
+
+                  return (
+                    <svg
+                      key={sourceItem.id}
+                      className="absolute overflow-visible pointer-events-none"
+                      style={{ left: svgX, top: svgY, width: svgW, height: svgH }}
+                    >
+                      <path
+                        d={pathD}
+                        stroke="#a78bfa"
+                        strokeWidth={3}
+                        fill="none"
+                        strokeLinecap="round"
+                        opacity="0.6"
+                        strokeDasharray="6 4"
+                      />
+                      {/* 起点圆点 */}
+                      <circle cx={sx} cy={sy} r="4" fill="#a78bfa" opacity="0.7" />
+                      {/* 终点圆点 */}
+                      <circle cx={ex} cy={ey} r="4" fill="#a78bfa" opacity="0.7" />
+                    </svg>
+                  );
+                });
+              })()}
+              <div
+                className="absolute rounded-xl cursor-move bg-gray-50 border-2 border-dashed border-gray-300 z-50"
+                style={{
+                  left: loadingPosition.x,
+                  top: loadingPosition.y,
+                  width: loadingPosition.width,
+                  height: loadingPosition.height,
+                }}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  const startX = e.clientX;
+                  const startY = e.clientY;
+                  const startPosX = loadingPosition.x;
+                  const startPosY = loadingPosition.y;
+
+                  const handleMouseMove = (moveEvent: MouseEvent) => {
+                    const dx = (moveEvent.clientX - startX) / scale;
+                    const dy = (moveEvent.clientY - startY) / scale;
+                    const newPos = {
+                      ...loadingPosition,
+                      x: startPosX + dx,
+                      y: startPosY + dy,
+                    };
+                    setLoadingPosition(newPos);
+                    loadingPositionRef.current = newPos;
                   };
-                  setLoadingPosition(newPos);
-                  loadingPositionRef.current = newPos;
-                };
 
-                const handleMouseUp = () => {
-                  document.removeEventListener('mousemove', handleMouseMove);
-                  document.removeEventListener('mouseup', handleMouseUp);
-                };
+                  const handleMouseUp = () => {
+                    document.removeEventListener('mousemove', handleMouseMove);
+                    document.removeEventListener('mouseup', handleMouseUp);
+                  };
 
-                document.addEventListener('mousemove', handleMouseMove);
-                document.addEventListener('mouseup', handleMouseUp);
-              }}
-            >
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-                <Loader2 className="w-8 h-8 text-gray-400 animate-spin" />
-                <p className="text-gray-500 text-sm font-medium">生成中...</p>
+                  document.addEventListener('mousemove', handleMouseMove);
+                  document.addEventListener('mouseup', handleMouseUp);
+                }}
+              >
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+                  <Loader2 className="w-8 h-8 text-gray-400 animate-spin" />
+                  <p className="text-gray-500 text-sm font-medium">生成中...</p>
+                </div>
               </div>
-            </div>
+            </>
           )}
         </div>
 
@@ -2075,8 +2669,8 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
 
       </div>
 
-      {/* --- Right Bottom Zoom Controls --- */}
-      <div className="fixed bottom-4 right-4 flex items-center gap-1 bg-white border border-gray-200 shadow-float rounded-lg p-1 z-50">
+      {/* --- Left Bottom Zoom Controls --- */}
+      <div className="fixed bottom-4 left-4 flex items-center gap-1 bg-white border border-gray-200 shadow-float rounded-lg p-1 z-50">
         <button
           onClick={() => handleZoom(-0.05)}
           className="p-2 rounded hover:bg-gray-100 text-gray-600 transition-colors"
@@ -2095,6 +2689,19 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
           <ZoomIn size={18} />
         </button>
       </div>
+
+      {/* --- Right Bottom: 问三傻 --- */}
+      <button
+        className="fixed bottom-4 right-4 z-50"
+        onClick={() => setIsChatOpen(!isChatOpen)}
+      >
+        <div className="flex items-center gap-2.5 pl-2 pr-4 py-1.5 rounded-2xl bg-violet-200 hover:bg-violet-300 shadow-lg transition-colors">
+          <div className="w-7 h-7 rounded-xl bg-white flex items-center justify-center">
+            <Logo size={18} showText={false} />
+          </div>
+          <span className="text-sm font-medium text-violet-700">问三傻</span>
+        </div>
+      </button>
 
       {/* --- Bottom Controls --- */}
       <div className="fixed bottom-8 left-0 right-0 px-8 flex items-center justify-center z-50 pointer-events-none">
@@ -2265,15 +2872,13 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                   onKeyDown={(e) => e.key === 'Enter' && !isProcessing && handleGenerate()}
                 />
 
-                {/* Settings Toggle - 仅在没有选中图片时显示 */}
-                {selectedIds.length === 0 && (
-                  <button
-                    onClick={() => setShowSettings(!showSettings)}
-                    className={`p-1.5 rounded-full transition-colors ${showSettings ? 'bg-violet-100 text-violet-600' : 'text-gray-400 hover:text-gray-600'}`}
-                  >
-                    <Settings2 size={16} />
-                  </button>
-                )}
+                {/* Settings Toggle */}
+                <button
+                  onClick={() => setShowSettings(!showSettings)}
+                  className={`p-1.5 rounded-full transition-colors ${showSettings ? 'bg-violet-100 text-violet-600' : 'text-gray-400 hover:text-gray-600'}`}
+                >
+                  <Settings2 size={16} />
+                </button>
 
                 {/* Generate Button */}
                 <button
@@ -2292,74 +2897,6 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         </div>
 
       </div>
-
-      {/* 裁切模式弹窗 */}
-      {croppingImageId && (() => {
-        const croppingItem = items.find(i => i.id === croppingImageId);
-        if (!croppingItem) return null;
-
-        return (
-          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100]">
-            <div className="flex flex-col items-center gap-4">
-              {/* 裁切区域 */}
-              <div
-                className="relative bg-gray-900 rounded-lg overflow-hidden"
-                style={{ width: Math.min(croppingItem.width, 600), height: Math.min(croppingItem.height, 500) }}
-              >
-                <img
-                  src={croppingItem.src}
-                  alt="裁切预览"
-                  className="w-full h-full object-contain"
-                  style={{ opacity: 0.5 }}
-                />
-                {/* 裁切框 */}
-                <div
-                  className="absolute border-2 border-white shadow-lg"
-                  style={{
-                    left: (cropBox.x / croppingItem.width) * 100 + '%',
-                    top: (cropBox.y / croppingItem.height) * 100 + '%',
-                    width: (cropBox.width / croppingItem.width) * 100 + '%',
-                    height: (cropBox.height / croppingItem.height) * 100 + '%',
-                  }}
-                >
-                  <img
-                    src={croppingItem.src}
-                    alt=""
-                    className="absolute object-contain"
-                    style={{
-                      width: (croppingItem.width / cropBox.width) * 100 + '%',
-                      height: (croppingItem.height / cropBox.height) * 100 + '%',
-                      left: -(cropBox.x / cropBox.width) * 100 + '%',
-                      top: -(cropBox.y / cropBox.height) * 100 + '%',
-                    }}
-                  />
-                  {/* 四角拖拽手柄 */}
-                  <div className="absolute -top-2 -left-2 w-4 h-4 bg-white rounded-full cursor-nwse-resize" />
-                  <div className="absolute -top-2 -right-2 w-4 h-4 bg-white rounded-full cursor-nesw-resize" />
-                  <div className="absolute -bottom-2 -left-2 w-4 h-4 bg-white rounded-full cursor-nesw-resize" />
-                  <div className="absolute -bottom-2 -right-2 w-4 h-4 bg-white rounded-full cursor-nwse-resize" />
-                </div>
-              </div>
-
-              {/* 操作按钮 */}
-              <div className="flex gap-3">
-                <button
-                  onClick={cancelCrop}
-                  className="px-6 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition-colors"
-                >
-                  取消
-                </button>
-                <button
-                  onClick={applyCrop}
-                  className="px-6 py-2 bg-violet-500 hover:bg-violet-600 text-white rounded-lg transition-colors"
-                >
-                  应用裁切
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
 
       {/* 摄像头弹窗 */}
       {showCamera && (
@@ -2403,15 +2940,6 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         canvasItems={items}
         selectedIds={selectedIds}
       />
-
-      {/* 图片擦除编辑器 */}
-      {inpaintingImage && (
-        <ImageMaskEditor
-          imageSrc={inpaintingImage.src}
-          onConfirm={handleInpaintConfirm}
-          onCancel={() => setInpaintingImage(null)}
-        />
-      )}
 
       {/* AI 融合面板 */}
       {showFusionPanel && fusionReferenceImage && (
@@ -2537,10 +3065,13 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
       )}
 
 
-      <CanvasOnboarding
-        onSelectTemplate={handleTemplateSelect}
-        onClose={() => { }}
+      {/* 协作者光标 */}
+      <CollaboratorCursors
+        cursors={remoteCursors}
+        scale={scale}
+        pan={pan}
       />
+
       <CanvasOnboarding
         onSelectTemplate={handleTemplateSelect}
         onClose={() => { }}

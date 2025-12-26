@@ -101,9 +101,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = memo(({ content
               {children}
             </ol>
           ),
-          li: ({ children, ordered }) => (
-            <li className={`flex gap-2 ${ordered ? '' : ''}`}>
-              {!ordered && <span className="text-gray-400 mt-0.5">•</span>}
+          li: ({ children }) => (
+            <li className="flex gap-2">
               <span className="flex-1">{children}</span>
             </li>
           ),

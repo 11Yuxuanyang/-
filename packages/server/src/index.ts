@@ -2,12 +2,15 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
 import { config } from './config.js';
 import { aiRouter } from './routes/ai.js';
 import { authRouter } from './routes/auth.js';
 import { chatRouter } from './routes/chat.js';
 import { errorHandler, notFoundHandler } from './middleware/index.js';
 import { logProviderStatus } from './providers/index.js';
+import { collaborationService } from './services/collaboration.js';
 
 const app = express();
 
@@ -109,13 +112,29 @@ app.use(notFoundHandler);
 // 错误处理
 app.use(errorHandler);
 
+// 创建 HTTP 服务器
+const httpServer = createServer(app);
+
+// 初始化 Socket.io
+const io = new Server(httpServer, {
+  cors: {
+    origin: config.corsOrigin,
+    credentials: true,
+  },
+  transports: ['websocket', 'polling'],
+});
+
+// 初始化协作服务
+collaborationService.init(io);
+
 // 启动服务器
-const server = app.listen(config.port, () => {
+const server = httpServer.listen(config.port, () => {
   console.log('\n========================================');
   console.log(`🚀 CanvasAI Studio 后端服务已启动`);
   console.log(`📍 地址: http://localhost:${config.port}`);
   console.log(`🌍 环境: ${config.nodeEnv}`);
   console.log(`🔒 安全: helmet + rate-limit 已启用`);
+  console.log(`🤝 协作: WebSocket 已启用`);
   console.log(`⏰ 启动时间: ${new Date().toLocaleString('zh-CN')}`);
   console.log('========================================\n');
 

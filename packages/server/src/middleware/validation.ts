@@ -98,7 +98,6 @@ export const schemas = {
       .max(LIMITS.MAX_PROMPT_LENGTH, '提示词过长'),
     model: z.string().optional(),
     aspectRatio: z.enum(LIMITS.SUPPORTED_ASPECT_RATIOS).optional().default('1:1'),
-    resolution: z.string().optional(),
     size: z.string().optional(),  // 图片尺寸（1K/2K/4K 等）
     watermark: z.boolean().optional(),             // 是否添加水印
     referenceImage: base64ImageSchema.optional(), // 参考图（用于 AI 融合）
@@ -170,6 +169,7 @@ export const schemas = {
           attachments: z
             .array(
               z.object({
+                name: z.string().optional(), // 文件名（用于 RAG 文档处理）
                 type: z.string(),
                 content: z.string().max(LIMITS.MAX_IMAGE_SIZE, '附件内容过大'),
               })
@@ -188,7 +188,7 @@ export const schemas = {
         items: z.array(
           z.object({
             id: z.string(),
-            type: z.enum(['image', 'text', 'rectangle', 'circle', 'brush', 'line', 'arrow']),
+            type: z.enum(['image', 'text', 'rectangle', 'circle', 'brush', 'line', 'arrow', 'connection']),
             position: z.object({ x: z.number(), y: z.number() }),
             size: z.object({ width: z.number(), height: z.number() }),
             imageData: z.string().optional(),
