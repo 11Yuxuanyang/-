@@ -86,25 +86,12 @@ export default function App() {
     );
   }
 
-  // 未登录显示登录弹窗
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-black flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-4xl font-bold text-white mb-4">三傻大闹AI圈</h1>
-          <p className="text-gray-300 mb-8">请登录后使用</p>
-        </div>
-        <LoginModal
-          isOpen={showLoginModal}
-          onClose={() => setShowLoginModal(true)}
-          onLoginSuccess={handleLoginSuccess}
-        />
-      </div>
-    );
-  }
-
-  // 渲染编辑器页面
+  // 渲染编辑器页面（需要登录）
   if (route.startsWith('/project/') && currentProject) {
+    if (!user) {
+      // 未登录时回到首页并显示登录弹窗
+      window.location.hash = '';
+    }
     return (
       <CanvasEditor
         key={currentProject.id}
@@ -116,6 +103,17 @@ export default function App() {
     );
   }
 
-  // 渲染首页 - HomePage 内部处理导航
-  return <HomePage onOpenProject={() => {}} onCreateProject={() => {}} onLogout={handleLogout} user={user} />;
+  // 渲染首页 - 未登录时直接在首页上显示登录弹窗
+  return (
+    <>
+      <HomePage onOpenProject={() => {}} onCreateProject={() => {}} onLogout={handleLogout} user={user} />
+      {!user && (
+        <LoginModal
+          isOpen={true}
+          onClose={() => {}}
+          onLoginSuccess={handleLoginSuccess}
+        />
+      )}
+    </>
+  );
 }

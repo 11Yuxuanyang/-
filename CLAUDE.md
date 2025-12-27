@@ -98,12 +98,16 @@ QWEN_CHAT_MODEL=
 - `services/api.ts` - 后端 API 调用（含流式聊天）
 
 ### 后端核心结构 (packages/server/src)
-- `providers/` - AI 提供商（图片生成）
+- `providers/` - AI 图片提供商 (OpenAI, 豆包, 千问, 自定义)
 - `providers/chat-*.ts` - 聊天提供商（OpenRouter, 豆包等）
 - `routes/ai.ts` - 图片生成/编辑 API
 - `routes/chat.ts` - 聊天 API（流式/非流式）
+- `routes/auth.ts` - 微信扫码登录、JWT 认证
+- `routes/projects.ts` - 项目云端同步
 - `services/webSearch.ts` - DuckDuckGo 联网搜索
+- `services/rag/` - RAG 知识库（文档解析、向量检索）
 - `middleware/validation.ts` - Zod 请求验证 schemas
+- `config.ts` - 多提供商配置管理
 
 ### API 端点
 
@@ -114,8 +118,17 @@ QWEN_CHAT_MODEL=
 - `POST /api/ai/upscale` - 图片放大
 
 **聊天**
-- `POST /api/chat` - 聊天（支持 `stream: true` 流式响应，`canvasContext` 画布上下文）
+- `POST /api/chat` - 聊天（支持 `stream: true` 流式响应，`canvasContext` 画布上下文，`webSearchEnabled` 联网搜索）
 - `GET /api/chat/health` - 聊天服务状态
+
+**认证**
+- `GET /api/auth/wechat/qrcode` - 获取微信扫码登录二维码
+- `GET /api/auth/wechat/callback` - 微信登录回调
+- `GET /api/auth/me` - 获取当前用户信息
+
+**项目云端同步**
+- `GET /api/projects` - 获取用户项目列表
+- `POST /api/projects` - 保存项目
 
 **通用**
 - `GET /api/config` - 获取配置
