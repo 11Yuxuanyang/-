@@ -37,33 +37,16 @@ export const SharePanel: React.FC<SharePanelProps> = memo(({
 
   return (
     <div className="relative">
-      {/* 分享按钮 - 原紫色样式 */}
+      {/* 分享按钮 - 紫色 */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-4 py-2 bg-violet-500 shadow-sm rounded-lg hover:bg-violet-600 transition-all text-sm font-medium text-white"
+        className="flex items-center gap-2 px-4 py-2 rounded-2xl shadow-sm transition-colors"
+        style={{ backgroundColor: '#60A5FA' }}
+        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#3B82F6'}
+        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#60A5FA'}
       >
-        {/* 在线人数头像 */}
-        {collaborators.length > 1 && (
-          <div className="flex -space-x-1.5">
-            {collaborators.slice(0, 3).map((user, index) => (
-              <div
-                key={user.id}
-                className="w-5 h-5 rounded-full border-2 border-violet-500 flex items-center justify-center text-[10px] text-white font-medium"
-                style={{ backgroundColor: user.color, zIndex: 3 - index }}
-                title={user.name}
-              >
-                {user.name.charAt(0)}
-              </div>
-            ))}
-            {collaborators.length > 3 && (
-              <div className="w-5 h-5 rounded-full border-2 border-violet-500 bg-violet-400 flex items-center justify-center text-[10px] text-white">
-                +{collaborators.length - 3}
-              </div>
-            )}
-          </div>
-        )}
-        <Share2 size={16} />
-        分享
+        <Share2 size={16} className="text-white/90" />
+        <span className="text-sm font-semibold text-white">分享</span>
       </button>
 
       {/* 下拉面板 - 极简设计 */}

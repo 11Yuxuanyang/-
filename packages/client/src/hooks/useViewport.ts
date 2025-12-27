@@ -1,10 +1,5 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { MIN_SCALE, MAX_SCALE } from '../constants/canvas';
-
-interface ViewportState {
-  scale: number;
-  pan: { x: number; y: number };
-}
 
 interface UseViewportProps {
   initialScale?: number;

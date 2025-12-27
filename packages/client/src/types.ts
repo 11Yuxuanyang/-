@@ -12,6 +12,8 @@ export interface CanvasItem {
   originalSrc?: string;
   originalWidth?: number;
   originalHeight?: number;
+  originalX?: number;  // 裁剪前原始位置
+  originalY?: number;
   cropX?: number;  // 裁剪位置
   cropY?: number;
   // Text-specific properties
@@ -30,6 +32,7 @@ export interface CanvasItem {
   // Line/Arrow-specific properties
   startPoint?: { x: number; y: number };
   endPoint?: { x: number; y: number };
+  controlPoint?: { x: number; y: number };  // 贝塞尔曲线控制点
   // Connection-specific properties (溯源连接线)
   sourceItemId?: string;  // 起点元素 ID
   targetItemId?: string;  // 终点元素 ID

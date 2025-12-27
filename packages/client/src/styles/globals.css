@@ -1,6 +1,15 @@
 @import "tailwindcss";
 @config "../../tailwind.config.js";
 
+/* Excalidraw Virgil 手写字体（英文） */
+@font-face {
+  font-family: 'Virgil';
+  src: url('https://raw.githubusercontent.com/excalidraw/virgil/main/Virgil.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
@@ -65,6 +74,15 @@
 }
 
 @layer utilities {
+  /* 隐藏文字编辑器滚动条 */
+  .no-scrollbar {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;  /* Chrome, Safari, Opera */
+  }
+
   .glass-panel {
     @apply bg-white/5 backdrop-blur-xl border border-white/10 shadow-2xl;
   }

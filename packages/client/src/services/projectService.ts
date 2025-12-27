@@ -1,4 +1,4 @@
-import { Project, CanvasItem } from '../types';
+import { Project } from '../types';
 import { generateId } from '../utils/id';
 
 const STORAGE_KEY = 'canvasai_projects';

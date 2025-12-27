@@ -69,11 +69,16 @@ export function useCropping({ items, setItems }: UseCroppingProps): UseCroppingR
             ? {
                 ...i,
                 src: item.originalSrc!,
+                // 恢复原始位置
+                x: i.originalX ?? i.x,
+                y: i.originalY ?? i.y,
                 width: originalW,
                 height: originalH,
                 originalSrc: undefined,
                 originalWidth: undefined,
                 originalHeight: undefined,
+                originalX: undefined,
+                originalY: undefined,
                 cropX: undefined,
                 cropY: undefined
               }
@@ -113,23 +118,33 @@ export function useCropping({ items, setItems }: UseCroppingProps): UseCroppingR
 
       const croppedSrc = canvas.toDataURL('image/png');
 
-      setItems(prev => prev.map(i =>
-        i.id === croppingImageId
-          ? {
-              ...i,
-              src: croppedSrc,
-              width: cropBox.width,
-              height: cropBox.height,
-              // 保存原始图片信息（如果还没有）
-              originalSrc: i.originalSrc || i.src,
-              originalWidth: i.originalWidth || i.width,
-              originalHeight: i.originalHeight || i.height,
-              // 保存裁剪位置
-              cropX: cropBox.x,
-              cropY: cropBox.y,
-            }
-          : i
-      ));
+      setItems(prev => prev.map(i => {
+        if (i.id !== croppingImageId) return i;
+
+        // 获取原始位置（首次裁剪用当前位置，再次裁剪用保存的原始位置）
+        const origX = i.originalX ?? i.x;
+        const origY = i.originalY ?? i.y;
+
+        return {
+          ...i,
+          src: croppedSrc,
+          // 更新位置：原始位置 + 裁剪框偏移（cropBox 是相对于原始图片的）
+          x: origX + cropBox.x,
+          y: origY + cropBox.y,
+          width: cropBox.width,
+          height: cropBox.height,
+          // 保存原始图片信息（如果还没有）
+          originalSrc: i.originalSrc || i.src,
+          originalWidth: i.originalWidth || i.width,
+          originalHeight: i.originalHeight || i.height,
+          // 保存原始位置（用于还原）
+          originalX: origX,
+          originalY: origY,
+          // 保存裁剪位置
+          cropX: cropBox.x,
+          cropY: cropBox.y,
+        };
+      }));
 
       setCroppingImageId(null);
     };

@@ -1,4 +1,4 @@
-import { useState, useCallback, useReducer } from 'react';
+import { useCallback, useReducer } from 'react';
 import { CanvasItem, ToolMode } from '@/types';
 import { generateId } from '@/utils/id';
 

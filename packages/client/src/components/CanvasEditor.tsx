@@ -31,6 +31,8 @@ import { ChatbotPanel } from './chatbot';
 import { generateId } from '../utils/id';
 import { Tooltip } from './ui';
 import { Logo } from './Logo';
+import { ShabiCoins } from './ShabiCoins';
+import { Users } from 'lucide-react';
 import { useCollaboration, useCropping, useMaskEditing, useClipboard } from '../hooks';
 import {
   DEFAULT_IMAGE_SIZE,
@@ -95,10 +97,37 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
     items: Record<string, { x: number; y: number; width: number; height: number; relX: number; relY: number; relW: number; relH: number }>;
   } | null>(null);
 
+  // 线条/箭头端点拖拽状态
+  const [linePointDrag, setLinePointDrag] = useState<{
+    itemId: string;
+    pointType: 'start' | 'end' | 'control';
+  } | null>(null);
+
   // 框选状态
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectionStart, setSelectionStart] = useState({ x: 0, y: 0 });
   const [selectionEnd, setSelectionEnd] = useState({ x: 0, y: 0 });
+
+  // 各工具的颜色
+  const colorPalette = ['#1f2937', '#8b5cf6', '#ef4444', '#f59e0b', '#10b981', '#3b82f6'];
+  const [toolColors, setToolColors] = useState({
+    brush: '#8b5cf6', line: '#8b5cf6', arrow: '#3b82f6', rectangle: '#10b981', circle: '#f59e0b',
+  });
+  const getToolColor = (mode: ToolMode) => {
+    if (mode === ToolMode.BRUSH) return toolColors.brush;
+    if (mode === ToolMode.LINE) return toolColors.line;
+    if (mode === ToolMode.ARROW) return toolColors.arrow;
+    if (mode === ToolMode.RECTANGLE) return toolColors.rectangle;
+    if (mode === ToolMode.CIRCLE) return toolColors.circle;
+    return '#8b5cf6';
+  };
+  const setToolColor = (mode: ToolMode, color: string) => {
+    if (mode === ToolMode.BRUSH) setToolColors(p => ({ ...p, brush: color }));
+    else if (mode === ToolMode.LINE) setToolColors(p => ({ ...p, line: color }));
+    else if (mode === ToolMode.ARROW) setToolColors(p => ({ ...p, arrow: color }));
+    else if (mode === ToolMode.RECTANGLE) setToolColors(p => ({ ...p, rectangle: color }));
+    else if (mode === ToolMode.CIRCLE) setToolColors(p => ({ ...p, circle: color }));
+  };
 
   // 摄像头状态
   const [showCamera, setShowCamera] = useState(false);
@@ -126,6 +155,9 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
 
   // 创作工具菜单状态
   const [showCreativeTools, setShowCreativeTools] = useState(false);
+
+  // 社群弹窗状态
+  const [showCommunityQR, setShowCommunityQR] = useState(false);
 
   // Chatbot 状态
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -173,6 +205,32 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const loadingPositionRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
   const mousePositionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 }); // 鼠标位置（画布坐标）
+  const textMeasureRef = useRef<HTMLDivElement>(null); // 用于测量文字尺寸
+
+  // 测量文字尺寸（Excalidraw 风格：宽度由最长行决定，不自动换行）
+  const measureTextSize = useCallback((text: string, fontSize: number, fontFamily: string, fontWeight: string) => {
+    if (!textMeasureRef.current) return { width: 60, height: 44 };
+
+    const measureEl = textMeasureRef.current;
+    measureEl.style.fontSize = `${fontSize}px`;
+    measureEl.style.fontFamily = fontFamily;
+    measureEl.style.fontWeight = fontWeight;
+    measureEl.style.lineHeight = '1.4';
+    measureEl.style.padding = '8px';
+    measureEl.style.whiteSpace = 'pre'; // 不自动换行，保留空格和换行符
+    measureEl.style.display = 'inline-block';
+    measureEl.style.boxSizing = 'content-box';
+
+    // 处理文字：空文字用占位符
+    measureEl.textContent = text || ' ';
+
+    const rect = measureEl.getBoundingClientRect();
+    // 增加足够的余量确保文字不被裁切
+    return {
+      width: Math.max(60, Math.ceil(rect.width) + 8),
+      height: Math.max(44, Math.ceil(rect.height) + 8),
+    };
+  }, []);
 
   // 剪贴板功能（使用 hook）
   const { clipboard, copy, cut, paste, duplicate } = useClipboard({
@@ -372,48 +430,10 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
     setItems(prev => updateConnectionsRealtime(prev, movedItemIds));
   }, [updateConnectionsRealtime]);
 
-  const handleTemplateSelect = (template: 'cyberpunk' | 'mascot' | 'surreal') => {
-    // Mock template loading - in real app this would load specific JSON
-    // 视口中心对应的画布坐标
-            const padding = 8;
-
-            return (
-              <div
-                className="absolute"
-                style={{
-                  left: minX - padding,
-                  top: minY - padding,
-                  width: maxX - minX + padding * 2,
-                  height: maxY - minY + padding * 2,
-                }}
-              >
-                {/* 外发光 */}
-                <div className="absolute inset-0 rounded-2xl bg-primary/10 blur-md pointer-events-none" />
-                {/* 边框 */}
-                <div className="absolute inset-0 rounded-xl border-2 border-primary/60 border-dashed pointer-events-none" />
-                {/* 四角手柄 */}
-                <div className="absolute -top-2 -left-2 w-4 h-4 bg-white border-2 border-primary rounded-full shadow-md cursor-nwse-resize hover:scale-125 transition-transform" onMouseDown={(e) => handleResizeStart(e, 'tl')} />
-                <div className="absolute -top-2 -right-2 w-4 h-4 bg-white border-2 border-primary rounded-full shadow-md cursor-nesw-resize hover:scale-125 transition-transform" onMouseDown={(e) => handleResizeStart(e, 'tr')} />
-                <div className="absolute -bottom-2 -left-2 w-4 h-4 bg-white border-2 border-primary rounded-full shadow-md cursor-nesw-resize hover:scale-125 transition-transform" onMouseDown={(e) => handleResizeStart(e, 'bl')} />
-                <div className="absolute -bottom-2 -right-2 w-4 h-4 bg-white border-2 border-primary rounded-full shadow-md cursor-nwse-resize hover:scale-125 transition-transform" onMouseDown={(e) => handleResizeStart(e, 'br')} />
-                {/* 多选工具栏 */}
-                {!isPanning && !isDragging && (
-                  <div style={{ transform: `scale(${1 / scale})`, transformOrigin: 'top center' }} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
-                    <div className="absolute top-[-50px] left-1/2 -translate-x-1/2 z-50 flex items-center gap-2">
-                      <button onClick={handleAIFusion} className="px-3 py-2 bg-gradient-to-r from-violet-500 to-purple-600 rounded-lg shadow-lg text-white hover:from-violet-600 hover:to-purple-700 transition-all flex items-center gap-2 group" title="AI 融合 - 将选中元素作为参考生成新图像">
-                        <Wand2 size={16} className="group-hover:rotate-12 transition-transform" />
-                        <span className="text-xs font-medium">AI 融合</span>
-                        <Sparkles size={12} className="opacity-70" />
-                      </button>
-                      <button onClick={handleDelete} className="p-2 bg-white rounded-lg shadow-lg border border-gray-200 text-gray-600 hover:text-red-500 hover:bg-red-50 transition-colors flex items-center gap-1.5" title={`删除 ${selectedIds.length} 个元素`}>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>
-                        <span className="text-xs font-medium">{selectedIds.length}</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );  };
+  const handleTemplateSelect = (_template: 'cyberpunk' | 'mascot' | 'surreal') => {
+    // TODO: 模板加载功能待实现
+    console.log('模板选择功能开发中');
+  };
 
 
   // Auto-save effect
@@ -1069,14 +1089,14 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         const newTextItem: CanvasItem = {
           id: generateId(),
           type: 'text',
-          src: '输入文字',
+          src: '',
           x: canvasX,
           y: canvasY,
-          width: 200,
+          width: 50, // 初始最小宽度
           height: 40,
           zIndex: items.length + 1,
           fontSize: 24,
-          fontFamily: 'system-ui',
+          fontFamily: '"ZCOOL KuaiLe", "Virgil", cursive',
           fontWeight: 'normal',
           color: '#1f2937',
           textAlign: 'left',
@@ -1086,7 +1106,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         setEditingTextId(newTextItem.id);
         setToolMode(ToolMode.SELECT);
       } else if (toolMode === ToolMode.RECTANGLE) {
-        // 创建矩形 - 拖拽绘制 (马卡龙粉色)
+        // 创建矩形 - 拖拽绘制
         const newRectItem: CanvasItem = {
           id: generateId(),
           type: 'rectangle',
@@ -1096,8 +1116,8 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
           width: 0,
           height: 0,
           zIndex: items.length + 1,
-          fill: '#FFE4E6',
-          stroke: '#FDA4AF',
+          fill: toolColors.rectangle + '20',
+          stroke: toolColors.rectangle,
           strokeWidth: 2,
           borderRadius: 8,
         };
@@ -1107,7 +1127,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         setDragStart({ x: e.clientX, y: e.clientY });
         setItemStart({ x: canvasX, y: canvasY });
       } else if (toolMode === ToolMode.CIRCLE) {
-        // 创建圆形 - 拖拽绘制 (马卡龙薄荷绿)
+        // 创建圆形 - 拖拽绘制
         const newCircleItem: CanvasItem = {
           id: generateId(),
           type: 'circle',
@@ -1117,8 +1137,8 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
           width: 0,
           height: 0,
           zIndex: items.length + 1,
-          fill: '#D1FAE5',
-          stroke: '#6EE7B7',
+          fill: toolColors.circle + '20',
+          stroke: toolColors.circle,
           strokeWidth: 2,
         };
         setItems(prev => [...prev, newCircleItem]);
@@ -1127,7 +1147,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         setDragStart({ x: e.clientX, y: e.clientY });
         setItemStart({ x: canvasX, y: canvasY });
       } else if (toolMode === ToolMode.LINE) {
-        // 创建直线 - 拖拽绘制 (马卡龙淡紫色)
+        // 创建直线 - 拖拽绘制
         const newLineItem: CanvasItem = {
           id: generateId(),
           type: 'line',
@@ -1137,7 +1157,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
           width: 0,
           height: 0,
           zIndex: items.length + 1,
-          stroke: '#C4B5FD',
+          stroke: toolColors.line,
           strokeWidth: 2,
           startPoint: { x: canvasX, y: canvasY },
           endPoint: { x: canvasX, y: canvasY },
@@ -1148,7 +1168,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         setDragStart({ x: e.clientX, y: e.clientY });
         setItemStart({ x: canvasX, y: canvasY });
       } else if (toolMode === ToolMode.ARROW) {
-        // 创建箭头 - 拖拽绘制 (马卡龙淡蓝色)
+        // 创建箭头 - 拖拽绘制
         const newArrowItem: CanvasItem = {
           id: generateId(),
           type: 'arrow',
@@ -1158,7 +1178,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
           width: 0,
           height: 0,
           zIndex: items.length + 1,
-          stroke: '#93C5FD',
+          stroke: toolColors.arrow,
           strokeWidth: 2,
           startPoint: { x: canvasX, y: canvasY },
           endPoint: { x: canvasX, y: canvasY },
@@ -1169,7 +1189,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         setDragStart({ x: e.clientX, y: e.clientY });
         setItemStart({ x: canvasX, y: canvasY });
       } else if (toolMode === ToolMode.BRUSH) {
-        // 画笔 - 开始绘制路径 (马卡龙淡黄色)
+        // 画笔 - 开始绘制路径
         const newBrushItem: CanvasItem = {
           id: generateId(),
           type: 'brush',
@@ -1179,7 +1199,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
           width: 0,
           height: 0,
           zIndex: items.length + 1,
-          stroke: '#FDE68A',
+          stroke: toolColors.brush,
           strokeWidth: 3,
           points: [{ x: canvasX, y: canvasY }],
         };
@@ -1212,6 +1232,65 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
       const dy = e.clientY - panStart.y;
       setPan(prev => ({ x: prev.x + dx, y: prev.y + dy }));
       setPanStart({ x: e.clientX, y: e.clientY });
+      return;
+    }
+
+    // 线条/箭头端点拖拽
+    if (linePointDrag) {
+      const canvasX = (e.clientX - window.innerWidth / 2 - pan.x) / scale;
+      const canvasY = (e.clientY - window.innerHeight / 2 - pan.y) / scale;
+
+      setItems(prev => prev.map(item => {
+        if (item.id !== linePointDrag.itemId) return item;
+        if (!item.startPoint || !item.endPoint) return item;
+
+        if (linePointDrag.pointType === 'start') {
+          // 更新起点
+          const newStartPoint = { x: canvasX, y: canvasY };
+          const minX = Math.min(newStartPoint.x, item.endPoint.x);
+          const minY = Math.min(newStartPoint.y, item.endPoint.y);
+          const maxX = Math.max(newStartPoint.x, item.endPoint.x);
+          const maxY = Math.max(newStartPoint.y, item.endPoint.y);
+          return {
+            ...item,
+            x: minX,
+            y: minY,
+            width: Math.max(maxX - minX, 1),
+            height: Math.max(maxY - minY, 1),
+            startPoint: newStartPoint,
+          };
+        } else if (linePointDrag.pointType === 'end') {
+          // 更新终点
+          const newEndPoint = { x: canvasX, y: canvasY };
+          const minX = Math.min(item.startPoint.x, newEndPoint.x);
+          const minY = Math.min(item.startPoint.y, newEndPoint.y);
+          const maxX = Math.max(item.startPoint.x, newEndPoint.x);
+          const maxY = Math.max(item.startPoint.y, newEndPoint.y);
+          return {
+            ...item,
+            x: minX,
+            y: minY,
+            width: Math.max(maxX - minX, 1),
+            height: Math.max(maxY - minY, 1),
+            endPoint: newEndPoint,
+          };
+        } else if (linePointDrag.pointType === 'control') {
+          // 用户拖拽的是曲线中点 M，反向计算贝塞尔控制点 P1
+          // M = 0.25*P0 + 0.5*P1 + 0.25*P2
+          // P1 = 2*M - (P0 + P2)/2
+          const startX = item.startPoint.x;
+          const startY = item.startPoint.y;
+          const endX = item.endPoint.x;
+          const endY = item.endPoint.y;
+          const controlPointX = 2 * canvasX - (startX + endX) / 2;
+          const controlPointY = 2 * canvasY - (startY + endY) / 2;
+          return {
+            ...item,
+            controlPoint: { x: controlPointX, y: controlPointY },
+          };
+        }
+        return item;
+      }));
       return;
     }
 
@@ -1470,7 +1549,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
               };
             }
 
-            // 直线和箭头移动时需要同时移动起点和终点
+            // 直线和箭头移动时需要同时移动起点、终点和控制点
             if ((item.type === 'line' || item.type === 'arrow') && item.startPoint && item.endPoint) {
               const offsetX = newX - item.x;
               const offsetY = newY - item.y;
@@ -1485,7 +1564,14 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                 endPoint: {
                   x: item.endPoint.x + offsetX,
                   y: item.endPoint.y + offsetY
-                }
+                },
+                // 同时移动控制点，保持曲线形状不变
+                ...(item.controlPoint && {
+                  controlPoint: {
+                    x: item.controlPoint.x + offsetX,
+                    y: item.controlPoint.y + offsetY
+                  }
+                })
               };
             }
 
@@ -1528,7 +1614,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
       }
     }
 
-    // 画笔绘制结束后计算边界框并切回选择模式
+    // 画笔绘制结束后计算边界框
     if (toolMode === ToolMode.BRUSH && isDragging && selectedIds.length > 0) {
       const brushItem = items.find(i => i.id === selectedIds[0]);
       if (brushItem?.points && brushItem.points.length > 0) {
@@ -1546,7 +1632,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
             : item
         ));
       }
-      setToolMode(ToolMode.SELECT);
+      setSelectedIds([]); // 取消选中，准备画下一个
     }
 
     // 形状工具绘制结束
@@ -1556,9 +1642,8 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
       // 如果形状太小，删除它
       if (shapeItem && shapeItem.width < 5 && shapeItem.height < 5) {
         setItems(prev => prev.filter(item => item.id !== selectedIds[0]));
-        setSelectedIds([]);
       }
-      setToolMode(ToolMode.SELECT);
+      setSelectedIds([]); // 取消选中，准备画下一个
     }
 
     // 拖动或缩放结束时，更新关联的连接线
@@ -1571,6 +1656,47 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
     setIsResizing(false);
     setResizeCorner(null);
     setIsSelecting(false);
+    setLinePointDrag(null);
+  };
+
+  // 双击画布空白区域创建文字
+  const handleCanvasDoubleClick = (e: React.MouseEvent) => {
+    // 计算画布坐标
+    const canvasX = (e.clientX - window.innerWidth / 2 - pan.x) / scale;
+    const canvasY = (e.clientY - window.innerHeight / 2 - pan.y) / scale;
+
+    // 检查是否点击在已有元素上
+    const clickedItem = items.find(item => {
+      if (item.type === 'connection') return false; // 忽略连接线
+      return (
+        canvasX >= item.x &&
+        canvasX <= item.x + item.width &&
+        canvasY >= item.y &&
+        canvasY <= item.y + item.height
+      );
+    });
+
+    // 如果点击在空白区域，创建文字
+    if (!clickedItem) {
+      const newTextItem: CanvasItem = {
+        id: generateId(),
+        type: 'text',
+        src: '',
+        x: canvasX,
+        y: canvasY - 20,
+        width: 50, // 初始最小宽度
+        height: 40,
+        zIndex: items.length + 1,
+        fontSize: 24,
+        fontFamily: '"ZCOOL KuaiLe", "Virgil", cursive',
+        fontWeight: 'normal',
+        color: '#1f2937',
+        textAlign: 'left',
+      };
+      setItems(prev => [...prev, newTextItem]);
+      setSelectedIds([newTextItem.id]);
+      setEditingTextId(newTextItem.id);
+    }
   };
 
   const handleResizeStart = (e: React.MouseEvent, corner: string) => {
@@ -1622,6 +1748,13 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         y: selectedItem.y
       });
     }
+  };
+
+  // 线条/箭头端点拖拽开始
+  const handleLinePointDrag = (e: React.MouseEvent, itemId: string, pointType: 'start' | 'end' | 'control') => {
+    e.stopPropagation();
+    setLinePointDrag({ itemId, pointType });
+    setDragStart({ x: e.clientX, y: e.clientY });
   };
 
   const handleWheel = (e: React.WheelEvent) => {
@@ -1758,6 +1891,37 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         </div>
 
         <div className="flex items-center gap-2 pointer-events-auto">
+          {/* 傻币 */}
+          <ShabiCoins />
+
+          {/* 社群按钮 */}
+          <div className="relative">
+            <button
+              onClick={() => setShowCommunityQR(!showCommunityQR)}
+              className="flex items-center gap-2 px-4 py-2 rounded-2xl shadow-sm transition-colors"
+              style={{ backgroundColor: '#A855F7' }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#9333EA'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#A855F7'}
+            >
+              <Users size={18} className="text-white" />
+              <span className="text-sm font-semibold text-white">社群</span>
+            </button>
+
+            {/* 社群下拉面板 */}
+            {showCommunityQR && (
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-72 bg-white rounded-xl shadow-xl border border-gray-100 p-4 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+                <div className="text-center mb-3">
+                  <h3 className="text-base font-semibold text-gray-900">加入三傻社群</h3>
+                  <p className="text-xs text-gray-500 mt-1">分享更多AI的有趣玩法，一起探索创意可能</p>
+                </div>
+                <div className="w-40 h-40 mx-auto bg-gray-100 rounded-lg flex items-center justify-center mb-3">
+                  <span className="text-gray-400 text-sm">群二维码</span>
+                </div>
+                <p className="text-center text-xs text-gray-400">微信扫码加入</p>
+              </div>
+            )}
+          </div>
+
           {/* 分享与协作 */}
           <SharePanel
             collaborators={collaborators}
@@ -1781,73 +1945,94 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
           </button>
         </Tooltip>
 
-        {/* 画笔 */}
-        <Tooltip content="画笔 (B)" side="right">
-          <button
-            className={`relative p-3 rounded-full transition-all duration-200 ease-out ${toolMode === ToolMode.BRUSH ? 'bg-gray-800 text-white shadow-md scale-105' : 'text-gray-500 hover:bg-gray-200/50 hover:scale-105'}`}
-            onClick={() => { setToolMode(ToolMode.BRUSH); setShowCreativeTools(false); }}
-          >
-            <Pencil size={20} />
-          </button>
-        </Tooltip>
-
-        {/* 形状工具 */}
-        <div className="relative">
+        {/* 形状工具（含画笔） */}
+        <div
+          className="relative"
+          onMouseEnter={() => setShowCreativeTools(true)}
+          onMouseLeave={() => setShowCreativeTools(false)}
+        >
           <Tooltip content="形状工具" side="right">
             <button
-              className={`relative p-3 rounded-full transition-all duration-200 ease-out ${[ToolMode.TEXT, ToolMode.RECTANGLE, ToolMode.CIRCLE, ToolMode.LINE, ToolMode.ARROW].includes(toolMode) || showCreativeTools
-                ? 'bg-gray-800 text-white shadow-md scale-105'
-                : 'text-gray-500 hover:bg-gray-200/50 hover:scale-105'
+              className={`relative p-3 rounded-full transition-all duration-200 ease-out ${[ToolMode.BRUSH, ToolMode.TEXT, ToolMode.RECTANGLE, ToolMode.CIRCLE, ToolMode.LINE, ToolMode.ARROW].includes(toolMode)
+                ? 'bg-gray-800 shadow-md scale-105'
+                : 'hover:bg-gray-200/50 hover:scale-105'
                 }`}
               onClick={() => setShowCreativeTools(!showCreativeTools)}
             >
-              <Shapes size={20} />
+              <Shapes size={20} style={{ color: getToolColor(toolMode) }} />
             </button>
           </Tooltip>
 
-          {/* 形状展开菜单 - 马卡龙色块 */}
+          {/* 形状展开菜单 */}
           {showCreativeTools && (
-            <div className="absolute left-full top-1/2 -translate-y-1/2 ml-3 flex gap-2 p-2.5 bg-white/95 backdrop-blur-sm shadow-lg rounded-2xl z-50 animate-in slide-in-from-left-2 fade-in duration-200 border border-gray-100">
-              <Tooltip content="文字 (T)" side="top">
-                <button
-                  className={`w-9 h-9 rounded-xl bg-amber-200 hover:bg-amber-300 transition-all duration-200 ease-out flex items-center justify-center ${toolMode === ToolMode.TEXT ? 'ring-2 ring-amber-400 ring-offset-2 scale-110 shadow-md' : 'hover:scale-105'}`}
-                  onClick={() => { setToolMode(ToolMode.TEXT); setShowCreativeTools(false); }}
-                >
-                  <Type size={16} className="text-amber-700" />
-                </button>
-              </Tooltip>
-              <Tooltip content="直线 (L)" side="top">
-                <button
-                  className={`w-9 h-9 rounded-xl bg-violet-200 hover:bg-violet-300 transition-all duration-200 ease-out flex items-center justify-center ${toolMode === ToolMode.LINE ? 'ring-2 ring-violet-400 ring-offset-2 scale-110 shadow-md' : 'hover:scale-105'}`}
-                  onClick={() => { setToolMode(ToolMode.LINE); setShowCreativeTools(false); }}
-                >
-                  <Minus size={16} className="text-violet-700" />
-                </button>
-              </Tooltip>
-              <Tooltip content="箭头 (A)" side="top">
-                <button
-                  className={`w-9 h-9 rounded-xl bg-sky-200 hover:bg-sky-300 transition-all duration-200 ease-out flex items-center justify-center ${toolMode === ToolMode.ARROW ? 'ring-2 ring-sky-400 ring-offset-2 scale-110 shadow-md' : 'hover:scale-105'}`}
-                  onClick={() => { setToolMode(ToolMode.ARROW); setShowCreativeTools(false); }}
-                >
-                  <MoveRight size={16} className="text-sky-700" />
-                </button>
-              </Tooltip>
-              <Tooltip content="矩形 (R)" side="top">
-                <button
-                  className={`w-9 h-9 rounded-xl bg-rose-200 hover:bg-rose-300 transition-all duration-200 ease-out flex items-center justify-center ${toolMode === ToolMode.RECTANGLE ? 'ring-2 ring-rose-400 ring-offset-2 scale-110 shadow-md' : 'hover:scale-105'}`}
-                  onClick={() => { setToolMode(ToolMode.RECTANGLE); setShowCreativeTools(false); }}
-                >
-                  <Square size={16} className="text-rose-700" />
-                </button>
-              </Tooltip>
-              <Tooltip content="圆形 (O)" side="top">
-                <button
-                  className={`w-9 h-9 rounded-xl bg-emerald-200 hover:bg-emerald-300 transition-all duration-200 ease-out flex items-center justify-center ${toolMode === ToolMode.CIRCLE ? 'ring-2 ring-emerald-400 ring-offset-2 scale-110 shadow-md' : 'hover:scale-105'}`}
-                  onClick={() => { setToolMode(ToolMode.CIRCLE); setShowCreativeTools(false); }}
-                >
-                  <Circle size={16} className="text-emerald-700" />
-                </button>
-              </Tooltip>
+            <div className="absolute left-full top-0 flex items-start z-50">
+              <div className="w-3" />
+              <div className="flex flex-col gap-3 p-3 bg-white/98 backdrop-blur-md shadow-2xl rounded-2xl animate-in slide-in-from-left-3 fade-in duration-200 border border-gray-200/80">
+                {/* 形状工具行 */}
+                <div className="flex gap-1.5">
+                  <Tooltip content="画笔 (B)" side="top">
+                    <button
+                      className={`w-10 h-10 rounded-xl transition-all duration-200 flex items-center justify-center ${toolMode === ToolMode.BRUSH ? 'bg-gray-900 text-white shadow-lg scale-105' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'}`}
+                      onClick={() => setToolMode(ToolMode.BRUSH)}
+                    >
+                      <Pencil size={18} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="文字 (T)" side="top">
+                    <button
+                      className={`w-10 h-10 rounded-xl transition-all duration-200 flex items-center justify-center ${toolMode === ToolMode.TEXT ? 'bg-gray-900 text-white shadow-lg scale-105' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'}`}
+                      onClick={() => setToolMode(ToolMode.TEXT)}
+                    >
+                      <Type size={18} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="直线 (L)" side="top">
+                    <button
+                      className={`w-10 h-10 rounded-xl transition-all duration-200 flex items-center justify-center ${toolMode === ToolMode.LINE ? 'bg-gray-900 text-white shadow-lg scale-105' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'}`}
+                      onClick={() => setToolMode(ToolMode.LINE)}
+                    >
+                      <Minus size={18} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="箭头 (A)" side="top">
+                    <button
+                      className={`w-10 h-10 rounded-xl transition-all duration-200 flex items-center justify-center ${toolMode === ToolMode.ARROW ? 'bg-gray-900 text-white shadow-lg scale-105' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'}`}
+                      onClick={() => setToolMode(ToolMode.ARROW)}
+                    >
+                      <MoveRight size={18} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="矩形 (R)" side="top">
+                    <button
+                      className={`w-10 h-10 rounded-xl transition-all duration-200 flex items-center justify-center ${toolMode === ToolMode.RECTANGLE ? 'bg-gray-900 text-white shadow-lg scale-105' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'}`}
+                      onClick={() => setToolMode(ToolMode.RECTANGLE)}
+                    >
+                      <Square size={18} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="圆形 (O)" side="top">
+                    <button
+                      className={`w-10 h-10 rounded-xl transition-all duration-200 flex items-center justify-center ${toolMode === ToolMode.CIRCLE ? 'bg-gray-900 text-white shadow-lg scale-105' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'}`}
+                      onClick={() => setToolMode(ToolMode.CIRCLE)}
+                    >
+                      <Circle size={18} />
+                    </button>
+                  </Tooltip>
+                </div>
+                {/* 分隔线 */}
+                <div className="h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent" />
+                {/* 颜色选择器行 */}
+                <div className="flex gap-1.5">
+                  {colorPalette.map((color) => (
+                    <button
+                      key={color}
+                      className={`w-10 h-10 rounded-xl transition-all duration-200 hover:scale-110 ${getToolColor(toolMode) === color ? 'ring-2 ring-offset-2 ring-gray-400 scale-110' : ''}`}
+                      style={{ backgroundColor: color }}
+                      onClick={() => setToolColor(toolMode, color)}
+                    />
+                  ))}
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -1862,6 +2047,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
+        onDoubleClick={handleCanvasDoubleClick}
         onWheel={handleWheel}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -1889,8 +2075,10 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
             // 为线条和箭头添加最小尺寸，确保选择框可见
             const isLineType = item.type === 'line' || item.type === 'arrow';
             const minSize = isLineType ? 20 : 0;
-            // 裁剪模式下使用原始尺寸
+            // 裁剪模式下使用原始尺寸和原始位置
             const isCropping = croppingImageId === item.id;
+            const effectiveX = isCropping ? (item.originalX ?? item.x) : item.x;
+            const effectiveY = isCropping ? (item.originalY ?? item.y) : item.y;
             const effectiveWidth = isCropping ? (item.originalWidth || item.width) : item.width;
             const effectiveHeight = isCropping ? (item.originalHeight || item.height) : item.height;
             const displayWidth = Math.max(effectiveWidth, minSize);
@@ -1902,15 +2090,16 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                 key={item.id}
                 className="absolute group select-none"
                 style={{
-                  left: item.x + offsetX,
-                  top: item.y + offsetY,
+                  left: effectiveX + offsetX,
+                  top: effectiveY + offsetY,
                   width: displayWidth,
                   height: displayHeight,
                   zIndex: (maskEditingId === item.id || isSelected) ? 9999 : item.zIndex,
+                  overflow: item.type === 'text' ? 'visible' : undefined,
                 }}
               >
-                {/* 选中边框 - 单选时显示完整边框和手柄（裁剪时隐藏） */}
-                {isSelected && selectedIds.length === 1 && croppingImageId !== item.id && (
+                {/* 选中边框 - 单选时显示完整边框和手柄（裁剪时隐藏，线段/箭头使用端点控制不需要边框） */}
+                {isSelected && selectedIds.length === 1 && croppingImageId !== item.id && item.type !== 'line' && item.type !== 'arrow' && (
                   <>
                     {/* 外发光 */}
                     <div className="absolute -inset-3 rounded-2xl bg-primary/10 blur-md pointer-events-none" />
@@ -1935,8 +2124,8 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                     />
                   </>
                 )}
-                {/* 悬停边框 */}
-                {!isSelected && (
+                {/* 悬停边框（线段/箭头不需要） */}
+                {!isSelected && item.type !== 'line' && item.type !== 'arrow' && (
                   <div className="absolute -inset-1 rounded-xl border border-transparent group-hover:border-gray-300 pointer-events-none transition-colors" />
                 )}
                 {/* 图片 */}
@@ -2205,8 +2394,15 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                       autoFocus
                       value={item.src}
                       onChange={(e) => {
+                        const newText = e.target.value;
+                        const { width, height } = measureTextSize(
+                          newText,
+                          item.fontSize || 24,
+                          item.fontFamily || '"ZCOOL KuaiLe", "Virgil", cursive',
+                          String(item.fontWeight || 'normal')
+                        );
                         setItems(prev => prev.map(i =>
-                          i.id === item.id ? { ...i, src: e.target.value } : i
+                          i.id === item.id ? { ...i, src: newText, width, height } : i
                         ));
                       }}
                       onBlur={() => setEditingTextId(null)}
@@ -2215,33 +2411,35 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                           setEditingTextId(null);
                         }
                       }}
-                      className="w-full h-full bg-transparent border-none outline-none resize-none p-2"
+                      className="w-full h-full bg-transparent border-none outline-none resize-none p-2 no-scrollbar"
                       style={{
                         fontSize: item.fontSize || 24,
-                        fontFamily: item.fontFamily || 'system-ui',
+                        fontFamily: item.fontFamily || '"ZCOOL KuaiLe", "Virgil", cursive',
                         fontWeight: item.fontWeight || 'normal',
                         color: item.color || '#1f2937',
                         textAlign: item.textAlign || 'left',
+                        lineHeight: 1.4,
+                        whiteSpace: 'pre',
                       }}
                     />
                   ) : (
                     <div
-                      className="w-full h-full p-2 cursor-text"
+                      className="w-full h-full p-2 cursor-text overflow-visible"
                       style={{
                         fontSize: item.fontSize || 24,
-                        fontFamily: item.fontFamily || 'system-ui',
+                        fontFamily: item.fontFamily || '"ZCOOL KuaiLe", "Virgil", cursive',
                         fontWeight: item.fontWeight || 'normal',
                         color: item.color || '#1f2937',
                         textAlign: item.textAlign || 'left',
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-word',
+                        lineHeight: 1.4,
+                        whiteSpace: 'pre',
                       }}
                       onDoubleClick={(e) => {
                         e.stopPropagation();
                         setEditingTextId(item.id);
                       }}
                     >
-                      {item.src}
+                      {item.src || ' '}
                     </div>
                   )
                 )}
@@ -2270,87 +2468,154 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                 )}
 
                 {/* 画笔路径 */}
-                {item.type === 'brush' && item.points && item.points.length > 0 && (
-                  <svg
-                    className="absolute top-0 left-0 overflow-visible pointer-events-none"
-                    style={{ width: 1, height: 1 }}
-                  >
-                    <path
-                      d={item.points.reduce((acc, point, i) => {
-                        const x = point.x - item.x;
-                        const y = point.y - item.y;
-                        return i === 0 ? `M ${x} ${y}` : `${acc} L ${x} ${y}`;
-                      }, '')}
-                      fill="none"
-                      stroke={item.stroke || '#8b5cf6'}
-                      strokeWidth={item.strokeWidth || 3}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                )}
+                {item.type === 'brush' && item.points && item.points.length > 0 && (() => {
+                  const pathD = item.points.reduce((acc, point, i) => {
+                    const x = point.x - item.x;
+                    const y = point.y - item.y;
+                    return i === 0 ? `M ${x} ${y}` : `${acc} L ${x} ${y}`;
+                  }, '');
+                  return (
+                    <svg
+                      className="absolute top-0 left-0 overflow-visible"
+                      style={{ width: 1, height: 1 }}
+                    >
+                      {/* 透明点击区域 */}
+                      <path
+                        d={pathD}
+                        fill="none"
+                        stroke="transparent"
+                        strokeWidth={Math.max(12, (item.strokeWidth || 3) + 8)}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="cursor-pointer"
+                        onMouseDown={(e) => { e.stopPropagation(); setSelectedIds([item.id]); }}
+                      />
+                      {/* 可见路径 */}
+                      <path
+                        d={pathD}
+                        fill="none"
+                        stroke={item.stroke || '#8b5cf6'}
+                        strokeWidth={item.strokeWidth || 3}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="pointer-events-none"
+                      />
+                    </svg>
+                  );
+                })()}
 
-                {/* 直线 */}
-                {item.type === 'line' && (
-                  <svg
-                    className="absolute overflow-visible pointer-events-none"
-                    style={{
-                      left: -offsetX,
-                      top: -offsetY,
-                      width: Math.max(item.width, 1),
-                      height: Math.max(item.height, 1)
-                    }}
-                  >
-                    <line
-                      x1={item.startPoint ? item.startPoint.x - item.x : 0}
-                      y1={item.startPoint ? item.startPoint.y - item.y : 0}
-                      x2={item.endPoint ? item.endPoint.x - item.x : item.width}
-                      y2={item.endPoint ? item.endPoint.y - item.y : 0}
-                      stroke={item.stroke || '#6b7280'}
-                      strokeWidth={item.strokeWidth || 2}
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                )}
+                {/* 直线 - 支持贝塞尔曲线和端点控制 */}
+                {item.type === 'line' && item.startPoint && item.endPoint && (() => {
+                  const sx = item.startPoint.x - item.x;
+                  const sy = item.startPoint.y - item.y;
+                  const ex = item.endPoint.x - item.x;
+                  const ey = item.endPoint.y - item.y;
+                  const ctrlX = item.controlPoint ? item.controlPoint.x - item.x : (sx + ex) / 2;
+                  const ctrlY = item.controlPoint ? item.controlPoint.y - item.y : (sy + ey) / 2;
+                  const hasControlPoint = !!item.controlPoint;
+                  const midX = 0.25 * sx + 0.5 * ctrlX + 0.25 * ex;
+                  const midY = 0.25 * sy + 0.5 * ctrlY + 0.25 * ey;
+                  const pathD = hasControlPoint ? `M ${sx} ${sy} Q ${ctrlX} ${ctrlY} ${ex} ${ey}` : `M ${sx} ${sy} L ${ex} ${ey}`;
+                  return (
+                    <svg className="absolute overflow-visible" style={{ left: -offsetX, top: -offsetY, width: 1, height: 1 }}>
+                      <path d={pathD} stroke="transparent" strokeWidth={Math.max(12, (item.strokeWidth || 3) + 8)} fill="none" strokeLinecap="round" className={isSelected ? "cursor-move" : "cursor-pointer"} onMouseDown={(e) => {
+                        e.stopPropagation();
+                        if (isSelected) {
+                          setIsDragging(true);
+                          setDragStart({ x: e.clientX, y: e.clientY });
+                          setItemStart({ x: item.x, y: item.y });
+                          const positions: Record<string, { x: number; y: number }> = {};
+                          items.forEach(i => { if (selectedIds.includes(i.id)) positions[i.id] = { x: i.x, y: i.y }; });
+                          setItemsStartPositions(positions);
+                        } else {
+                          setSelectedIds([item.id]);
+                        }
+                      }} />
+                      <path d={pathD} stroke={item.stroke || '#6b7280'} strokeWidth={item.strokeWidth || 3} fill="none" strokeLinecap="round" className="pointer-events-none" />
+                      {isSelected && (
+                        <>
+                          {/* 起点 */}
+                          <g className="group/start cursor-move" onMouseDown={(e) => { e.stopPropagation(); handleLinePointDrag(e, item.id, 'start'); }}>
+                            <circle cx={sx} cy={sy} r={10} fill="transparent" />
+                            <circle cx={sx} cy={sy} r={8} fill="#6366f1" className="opacity-0 group-hover/start:opacity-20 transition-opacity" />
+                            <circle cx={sx} cy={sy} r={4} fill="white" stroke="#6366f1" strokeWidth={1.5} style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.15))' }} />
+                          </g>
+                          {/* 终点 */}
+                          <g className="group/end cursor-move" onMouseDown={(e) => { e.stopPropagation(); handleLinePointDrag(e, item.id, 'end'); }}>
+                            <circle cx={ex} cy={ey} r={10} fill="transparent" />
+                            <circle cx={ex} cy={ey} r={8} fill="#6366f1" className="opacity-0 group-hover/end:opacity-20 transition-opacity" />
+                            <circle cx={ex} cy={ey} r={4} fill="white" stroke="#6366f1" strokeWidth={1.5} style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.15))' }} />
+                          </g>
+                          {/* 中点控制 */}
+                          <g className="group/ctrl cursor-move" onMouseDown={(e) => { e.stopPropagation(); handleLinePointDrag(e, item.id, 'control'); }}>
+                            <circle cx={midX} cy={midY} r={10} fill="transparent" />
+                            <circle cx={midX} cy={midY} r={8} fill="#8b5cf6" className="opacity-0 group-hover/ctrl:opacity-25 transition-opacity" />
+                            <circle cx={midX} cy={midY} r={4} fill="#8b5cf6" stroke="white" strokeWidth={1.5} style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.15))' }} />
+                          </g>
+                        </>
+                      )}
+                    </svg>
+                  );
+                })()}
 
-                {/* 箭头 */}
-                {item.type === 'arrow' && (
-                  <svg
-                    className="absolute overflow-visible pointer-events-none"
-                    style={{
-                      left: -offsetX,
-                      top: -offsetY,
-                      width: Math.max(item.width, 1),
-                      height: Math.max(item.height, 1)
-                    }}
-                  >
-                    <defs>
-                      <marker
-                        id={`arrowhead-${item.id}`}
-                        markerWidth="10"
-                        markerHeight="7"
-                        refX="9"
-                        refY="3.5"
-                        orient="auto"
-                      >
-                        <polygon
-                          points="0 0, 10 3.5, 0 7"
-                          fill={item.stroke || '#6b7280'}
-                        />
-                      </marker>
-                    </defs>
-                    <line
-                      x1={item.startPoint ? item.startPoint.x - item.x : 0}
-                      y1={item.startPoint ? item.startPoint.y - item.y : 0}
-                      x2={item.endPoint ? item.endPoint.x - item.x : item.width}
-                      y2={item.endPoint ? item.endPoint.y - item.y : 0}
-                      stroke={item.stroke || '#6b7280'}
-                      strokeWidth={item.strokeWidth || 2}
-                      strokeLinecap="round"
-                      markerEnd={`url(#arrowhead-${item.id})`}
-                    />
-                  </svg>
-                )}
+                {/* 箭头 - 支持贝塞尔曲线和端点控制 */}
+                {item.type === 'arrow' && item.startPoint && item.endPoint && (() => {
+                  const sx = item.startPoint.x - item.x;
+                  const sy = item.startPoint.y - item.y;
+                  const ex = item.endPoint.x - item.x;
+                  const ey = item.endPoint.y - item.y;
+                  const ctrlX = item.controlPoint ? item.controlPoint.x - item.x : (sx + ex) / 2;
+                  const ctrlY = item.controlPoint ? item.controlPoint.y - item.y : (sy + ey) / 2;
+                  const hasControlPoint = !!item.controlPoint;
+                  const midX = 0.25 * sx + 0.5 * ctrlX + 0.25 * ex;
+                  const midY = 0.25 * sy + 0.5 * ctrlY + 0.25 * ey;
+                  const pathD = hasControlPoint ? `M ${sx} ${sy} Q ${ctrlX} ${ctrlY} ${ex} ${ey}` : `M ${sx} ${sy} L ${ex} ${ey}`;
+                  return (
+                    <svg className="absolute overflow-visible" style={{ left: -offsetX, top: -offsetY, width: 1, height: 1 }}>
+                      <defs>
+                        <marker id={`arrowhead-${item.id}`} markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                          <polygon points="0 0, 10 3.5, 0 7" fill={item.stroke || '#6b7280'} />
+                        </marker>
+                      </defs>
+                      <path d={pathD} stroke="transparent" strokeWidth={Math.max(12, (item.strokeWidth || 3) + 8)} fill="none" strokeLinecap="round" className={isSelected ? "cursor-move" : "cursor-pointer"} onMouseDown={(e) => {
+                        e.stopPropagation();
+                        if (isSelected) {
+                          setIsDragging(true);
+                          setDragStart({ x: e.clientX, y: e.clientY });
+                          setItemStart({ x: item.x, y: item.y });
+                          const positions: Record<string, { x: number; y: number }> = {};
+                          items.forEach(i => { if (selectedIds.includes(i.id)) positions[i.id] = { x: i.x, y: i.y }; });
+                          setItemsStartPositions(positions);
+                        } else {
+                          setSelectedIds([item.id]);
+                        }
+                      }} />
+                      <path d={pathD} stroke={item.stroke || '#6b7280'} strokeWidth={item.strokeWidth || 3} fill="none" strokeLinecap="round" markerEnd={`url(#arrowhead-${item.id})`} className="pointer-events-none" />
+                      {isSelected && (
+                        <>
+                          {/* 起点 */}
+                          <g className="group/start cursor-move" onMouseDown={(e) => { e.stopPropagation(); handleLinePointDrag(e, item.id, 'start'); }}>
+                            <circle cx={sx} cy={sy} r={10} fill="transparent" />
+                            <circle cx={sx} cy={sy} r={8} fill="#6366f1" className="opacity-0 group-hover/start:opacity-20 transition-opacity" />
+                            <circle cx={sx} cy={sy} r={4} fill="white" stroke="#6366f1" strokeWidth={1.5} style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.15))' }} />
+                          </g>
+                          {/* 终点 */}
+                          <g className="group/end cursor-move" onMouseDown={(e) => { e.stopPropagation(); handleLinePointDrag(e, item.id, 'end'); }}>
+                            <circle cx={ex} cy={ey} r={10} fill="transparent" />
+                            <circle cx={ex} cy={ey} r={8} fill="#6366f1" className="opacity-0 group-hover/end:opacity-20 transition-opacity" />
+                            <circle cx={ex} cy={ey} r={4} fill="white" stroke="#6366f1" strokeWidth={1.5} style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.15))' }} />
+                          </g>
+                          {/* 中点控制 */}
+                          <g className="group/ctrl cursor-move" onMouseDown={(e) => { e.stopPropagation(); handleLinePointDrag(e, item.id, 'control'); }}>
+                            <circle cx={midX} cy={midY} r={10} fill="transparent" />
+                            <circle cx={midX} cy={midY} r={8} fill="#8b5cf6" className="opacity-0 group-hover/ctrl:opacity-25 transition-opacity" />
+                            <circle cx={midX} cy={midY} r={4} fill="#8b5cf6" stroke="white" strokeWidth={1.5} style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.15))' }} />
+                          </g>
+                        </>
+                      )}
+                    </svg>
+                  );
+                })()}
 
                 {/* 溯源连接线（贝塞尔曲线）*/}
                 {item.type === 'connection' && item.startPoint && item.endPoint && (() => {
@@ -2408,23 +2673,6 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                   </div>
                 )}
                 {/* Simple delete button for non-image items (single select only) */}
-                {isSelected && selectedIds.length === 1 && !isPanning && !isDragging && item.type !== 'image' && !editingTextId && (
-                  <div
-                    style={{ transform: `scale(${1 / scale})`, transformOrigin: 'bottom center' }}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="absolute top-[-50px] left-1/2 -translate-x-1/2 z-50">
-                      <button
-                        onClick={handleDelete}
-                        className="p-2 bg-white rounded-lg shadow-lg border border-gray-200 text-gray-600 hover:text-red-500 hover:bg-red-50 transition-colors"
-                        title="删除"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>
-                      </button>
-                    </div>
-                  </div>
-                )}
               </div>
             );
           })}
@@ -2469,10 +2717,6 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                         <Wand2 size={16} className="group-hover:rotate-12 transition-transform" />
                         <span className="text-xs font-medium">AI 融合</span>
                         <Sparkles size={12} className="opacity-70" />
-                      </button>
-                      <button onClick={handleDelete} className="p-2 bg-white rounded-lg shadow-lg border border-gray-200 text-gray-600 hover:text-red-500 hover:bg-red-50 transition-colors flex items-center gap-1.5" title={`删除 ${selectedIds.length} 个元素`}>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>
-                        <span className="text-xs font-medium">{selectedIds.length}</span>
                       </button>
                     </div>
                   </div>
@@ -2692,15 +2936,16 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
 
       {/* --- Right Bottom: 问三傻 --- */}
       <button
-        className="fixed bottom-4 right-4 z-50"
+        className="fixed bottom-4 right-4 z-50 flex items-center gap-2 px-4 py-2 rounded-2xl shadow-sm transition-colors"
+        style={{ backgroundColor: '#1F2937' }}
+        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#111827'}
+        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#1F2937'}
         onClick={() => setIsChatOpen(!isChatOpen)}
       >
-        <div className="flex items-center gap-2.5 pl-2 pr-4 py-1.5 rounded-2xl bg-violet-200 hover:bg-violet-300 shadow-lg transition-colors">
-          <div className="w-7 h-7 rounded-xl bg-white flex items-center justify-center">
-            <Logo size={18} showText={false} />
-          </div>
-          <span className="text-sm font-medium text-violet-700">问三傻</span>
+        <div className="w-5 h-5 rounded-lg bg-white/90 flex items-center justify-center">
+          <Logo size={14} showText={false} />
         </div>
+        <span className="text-sm font-semibold text-white">问三傻</span>
       </button>
 
       {/* --- Bottom Controls --- */}
@@ -3075,6 +3320,18 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
       <CanvasOnboarding
         onSelectTemplate={handleTemplateSelect}
         onClose={() => { }}
+      />
+
+      {/* 隐藏的文字测量元素 */}
+      <div
+        ref={textMeasureRef}
+        style={{
+          position: 'fixed',
+          top: -9999,
+          left: -9999,
+          visibility: 'hidden',
+          pointerEvents: 'none',
+        }}
       />
     </div>
   );

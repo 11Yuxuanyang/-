@@ -217,7 +217,7 @@ export interface ChatMessageInput {
 // 画布元素上下文（用于 AI 对话）
 export interface CanvasItemContext {
   id: string;
-  type: 'image' | 'text' | 'rectangle' | 'circle' | 'brush' | 'line' | 'arrow';
+  type: 'image' | 'text' | 'rectangle' | 'circle' | 'brush' | 'line' | 'arrow' | 'connection';
   position: { x: number; y: number };
   size: { width: number; height: number };
   imageData?: string;  // base64

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Building2, Cat, Palette, X, ChevronRight, Wand2 } from 'lucide-react';
+import { Building2, Cat, Palette, X } from 'lucide-react';
 import { OnboardingTour, TourStep } from './OnboardingTour';
 
 interface CanvasOnboardingProps {

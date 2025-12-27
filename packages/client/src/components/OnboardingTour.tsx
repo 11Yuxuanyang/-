@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { ArrowRight, X, Sparkles, Navigation } from 'lucide-react';
+import { ArrowRight, Sparkles } from 'lucide-react';
 
 export interface TourStep {
     target: string;
