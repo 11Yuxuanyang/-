@@ -1096,7 +1096,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
           height: 40,
           zIndex: items.length + 1,
           fontSize: 24,
-          fontFamily: '"ZCOOL KuaiLe", "Virgil", cursive',
+          fontFamily: '"Xiaolai SC", "Virgil", cursive',
           fontWeight: 'normal',
           color: '#1f2937',
           textAlign: 'left',
@@ -1688,7 +1688,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
         height: 40,
         zIndex: items.length + 1,
         fontSize: 24,
-        fontFamily: '"ZCOOL KuaiLe", "Virgil", cursive',
+        fontFamily: '"Xiaolai SC", "Virgil", cursive',
         fontWeight: 'normal',
         color: '#1f2937',
         textAlign: 'left',
@@ -2398,7 +2398,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                         const { width, height } = measureTextSize(
                           newText,
                           item.fontSize || 24,
-                          item.fontFamily || '"ZCOOL KuaiLe", "Virgil", cursive',
+                          item.fontFamily || '"Xiaolai SC", "Virgil", cursive',
                           String(item.fontWeight || 'normal')
                         );
                         setItems(prev => prev.map(i =>
@@ -2414,7 +2414,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                       className="w-full h-full bg-transparent border-none outline-none resize-none p-2 no-scrollbar"
                       style={{
                         fontSize: item.fontSize || 24,
-                        fontFamily: item.fontFamily || '"ZCOOL KuaiLe", "Virgil", cursive',
+                        fontFamily: item.fontFamily || '"Xiaolai SC", "Virgil", cursive',
                         fontWeight: item.fontWeight || 'normal',
                         color: item.color || '#1f2937',
                         textAlign: item.textAlign || 'left',
@@ -2427,7 +2427,7 @@ export function CanvasEditor({ project, onBack }: CanvasEditorProps) {
                       className="w-full h-full p-2 cursor-text overflow-visible"
                       style={{
                         fontSize: item.fontSize || 24,
-                        fontFamily: item.fontFamily || '"ZCOOL KuaiLe", "Virgil", cursive',
+                        fontFamily: item.fontFamily || '"Xiaolai SC", "Virgil", cursive',
                         fontWeight: item.fontWeight || 'normal',
                         color: item.color || '#1f2937',
                         textAlign: item.textAlign || 'left',
