@@ -107,10 +107,10 @@ export default function App() {
   return (
     <>
       <HomePage onOpenProject={() => {}} onCreateProject={() => {}} onLogout={handleLogout} user={user} />
-      {!user && (
+      {!user && showLoginModal && (
         <LoginModal
           isOpen={true}
-          onClose={() => {}}
+          onClose={() => setShowLoginModal(false)}
           onLoginSuccess={handleLoginSuccess}
         />
       )}
