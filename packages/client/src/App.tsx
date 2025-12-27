@@ -1,7 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { HomePage } from './components/HomePage';
 import { CanvasEditor } from './components/CanvasEditor';
-import { LoginModal } from './components/LoginModal';
 import { Project } from './types';
 import * as ProjectService from './services/projectService';
 import { isLoggedIn, getUser, logout, User } from './services/auth';
@@ -10,10 +9,9 @@ export default function App() {
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [route, setRoute] = useState<string>(window.location.hash.slice(1));
   const [user, setUser] = useState<User | null>(null);
-  const [showLoginModal, setShowLoginModal] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
 
-  // 检查登录状态
+  // 检查登录状态（不自动弹出登录弹窗，让用户先浏览首页）
   useEffect(() => {
     const checkAuth = () => {
       if (isLoggedIn()) {
@@ -21,7 +19,6 @@ export default function App() {
         setUser(savedUser);
       } else {
         setUser(null);
-        setShowLoginModal(true);
       }
       setAuthChecked(true);
     };
@@ -31,14 +28,12 @@ export default function App() {
   // 登录成功回调
   const handleLoginSuccess = (loggedInUser: User) => {
     setUser(loggedInUser);
-    setShowLoginModal(false);
   };
 
   // 退出登录
   const handleLogout = () => {
     logout();
     setUser(null);
-    setShowLoginModal(true);
     window.location.hash = '';
   };
 
@@ -80,8 +75,8 @@ export default function App() {
   // 等待认证检查完成
   if (!authChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-black flex items-center justify-center">
-        <div className="text-white text-xl">加载中...</div>
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-gray-500 text-xl">加载中...</div>
       </div>
     );
   }
@@ -103,17 +98,14 @@ export default function App() {
     );
   }
 
-  // 渲染首页 - 未登录时直接在首页上显示登录弹窗
+  // 渲染首页 - 登录弹窗由 HomePage 内部按需触发
   return (
-    <>
-      <HomePage onOpenProject={() => {}} onCreateProject={() => {}} onLogout={handleLogout} user={user} />
-      {!user && showLoginModal && (
-        <LoginModal
-          isOpen={true}
-          onClose={() => setShowLoginModal(false)}
-          onLoginSuccess={handleLoginSuccess}
-        />
-      )}
-    </>
+    <HomePage
+      onOpenProject={() => {}}
+      onCreateProject={() => {}}
+      onLogout={handleLogout}
+      user={user}
+      onLoginSuccess={handleLoginSuccess}
+    />
   );
 }

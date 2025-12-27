@@ -16,6 +16,7 @@ interface HomePageProps {
   onOpenProject?: (project: Project) => void;
   onCreateProject?: () => void;
   onLogout?: () => void;
+  onLoginSuccess?: (user: User) => void;
   user?: {
     id: string;
     nickname: string;
@@ -41,7 +42,7 @@ const typingPhrases = [
   '北欧风格的温馨小木屋',
 ];
 
-export function HomePage({ onLogout, user: propUser }: HomePageProps) {
+export function HomePage({ onLogout, onLoginSuccess: propOnLoginSuccess, user: propUser }: HomePageProps) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [sortBy, setSortBy] = useState<'recent' | 'name'>('recent');
   const [showSortMenu, setShowSortMenu] = useState(false);
@@ -94,8 +95,14 @@ export function HomePage({ onLogout, user: propUser }: HomePageProps) {
     return () => clearTimeout(timeout);
   }, [displayText, isDeleting, phraseIndex]);
 
+  // 加载项目列表（登录用户从云端获取）
+  const loadProjects = async () => {
+    const projectList = await ProjectService.getProjectsAsync();
+    setProjects(projectList);
+  };
+
   useEffect(() => {
-    setProjects(ProjectService.getProjects());
+    loadProjects();
     // 检查本地存储的用户（优先使用 auth 服务）
     const authUser = getUser();
     if (authUser) {
@@ -117,6 +124,12 @@ export function HomePage({ onLogout, user: propUser }: HomePageProps) {
     setUser(loggedInUser);
     localStorage.setItem('user', JSON.stringify(loggedInUser));
     setShowLoginModal(false);
+    // 通知父组件登录成功
+    if (propOnLoginSuccess) {
+      propOnLoginSuccess(loggedInUser);
+    }
+    // 登录后刷新项目列表（从云端获取）
+    loadProjects();
   };
 
   const handleLogout = () => {
@@ -133,11 +146,21 @@ export function HomePage({ onLogout, user: propUser }: HomePageProps) {
   };
 
   const handleCreateProject = () => {
+    // 未登录时弹出登录弹窗
+    if (!user) {
+      setShowLoginModal(true);
+      return;
+    }
     const newProject = ProjectService.createProject();
     window.open(`#/project/${newProject.id}`, '_blank');
   };
 
   const handlePromptSubmit = (prompt?: string) => {
+    // 未登录时弹出登录弹窗
+    if (!user) {
+      setShowLoginModal(true);
+      return;
+    }
     const inputPrompt = prompt || promptInput.trim();
     if (!inputPrompt) {
       handleCreateProject();
@@ -156,7 +179,7 @@ export function HomePage({ onLogout, user: propUser }: HomePageProps) {
     e.stopPropagation();
     if (confirm('确定要删除这个项目吗？')) {
       ProjectService.deleteProject(id);
-      setProjects(ProjectService.getProjects());
+      loadProjects();
     }
     setActiveMenu(null);
   };
@@ -164,7 +187,7 @@ export function HomePage({ onLogout, user: propUser }: HomePageProps) {
   const handleDuplicate = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     ProjectService.duplicateProject(id);
-    setProjects(ProjectService.getProjects());
+    loadProjects();
     setActiveMenu(null);
   };
 
@@ -196,7 +219,7 @@ export function HomePage({ onLogout, user: propUser }: HomePageProps) {
       selectedProjects.forEach(id => {
         ProjectService.deleteProject(id);
       });
-      setProjects(ProjectService.getProjects());
+      loadProjects();
       setSelectedProjects(new Set());
       setIsSelectionMode(false);
     }
@@ -626,7 +649,7 @@ export function HomePage({ onLogout, user: propUser }: HomePageProps) {
                                 const newName = prompt('输入新名称:', project.name);
                                 if (newName) {
                                   ProjectService.updateProjectName(project.id, newName);
-                                  setProjects(ProjectService.getProjects());
+                                  loadProjects();
                                 }
                                 setActiveMenu(null);
                               }}

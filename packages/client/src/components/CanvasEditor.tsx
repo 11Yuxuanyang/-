@@ -464,11 +464,21 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
         const { projectId, prompt: pendingPromptText } = JSON.parse(pendingData);
         if (projectId === project.id && pendingPromptText) {
           localStorage.removeItem('pendingPrompt');
-          // 设置 prompt 并触发生成
+          // 设置 prompt
           setPrompt(pendingPromptText);
+
           // 延迟一帧后触发生成，确保状态已更新
           setTimeout(async () => {
+            // 计算 loading 占位区域位置（画布中心）
+            const displaySize = DEFAULT_IMAGE_SIZE;
+            const loadingX = -pan.x / scale - displaySize / 2;
+            const loadingY = -pan.y / scale - displaySize / 2;
+            const initialPosition = { x: loadingX, y: loadingY, width: displaySize, height: displaySize };
+
+            setLoadingPosition(initialPosition);
+            loadingPositionRef.current = initialPosition;
             setIsProcessing(true);
+
             try {
               const newImageSrc = await API.generateImage({
                 prompt: pendingPromptText,
@@ -478,13 +488,17 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
               const img = new window.Image();
               img.src = newImageSrc;
               img.onload = () => {
-                const displaySize = DEFAULT_IMAGE_SIZE;
+                // 使用 ref 获取最新的 loading 位置（用户可能拖动了）
+                const currentPos = loadingPositionRef.current;
+                const finalX = currentPos?.x ?? loadingX;
+                const finalY = currentPos?.y ?? loadingY;
+
                 const newItem: CanvasItem = {
                   id: generateId(),
                   type: 'image',
                   src: newImageSrc,
-                  x: -pan.x / scale - displaySize / 2,
-                  y: -pan.y / scale - displaySize / 2,
+                  x: finalX,
+                  y: finalY,
                   width: displaySize,
                   height: displaySize,
                   zIndex: items.length + 1,
@@ -493,10 +507,16 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
                 setItems(prev => [...prev, newItem]);
                 setSelectedIds([newItem.id]);
                 setPrompt('');
+                // 清理 loading 状态
+                setLoadingPosition(null);
+                loadingPositionRef.current = null;
               };
             } catch (error) {
               console.error('Auto-generate failed:', error);
               alert(error instanceof Error ? error.message : '生成失败，请检查后端服务是否正常运行。');
+              // 清理 loading 状态
+              setLoadingPosition(null);
+              loadingPositionRef.current = null;
             } finally {
               setIsProcessing(false);
             }
