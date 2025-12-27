@@ -2,7 +2,7 @@ module.exports = {
   apps: [
     {
       name: 'canvasai',
-      script: './node_modules/.bin/tsx',
+      script: '/www/wwwroot/canvasai/node_modules/.bin/tsx',
       args: 'src/index.ts',
       cwd: '/www/wwwroot/canvasai/packages/server',
       env: {
