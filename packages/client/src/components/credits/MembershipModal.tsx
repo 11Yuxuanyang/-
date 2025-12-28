@@ -23,7 +23,7 @@ interface MembershipModalProps {
 // 免费套餐配置
 const FREE_PLAN = {
   features: [
-    '登录每日领傻币',
+    '每日免费20傻币',
     '免费模型随心选',
     '畅享使用基础模型',
   ],
@@ -377,10 +377,6 @@ export function MembershipModal({
               </button>
 
               <ul className="space-y-2.5 text-sm text-gray-600">
-                <li className="flex items-center gap-2">
-                  <span className="text-gray-400">•</span>
-                  <span>登录每日领{freeUserDailySignin}傻币</span>
-                </li>
                 {FREE_PLAN.features.map((feature, i) => (
                   <li key={i} className="flex items-center gap-2">
                     <span className="text-gray-400">•</span>

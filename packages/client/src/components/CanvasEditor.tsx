@@ -71,13 +71,14 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
   const [prompt, setPrompt] = useState("");
   const [aspectRatio, setAspectRatio] = useState("1:1");
   const [resolution, setResolution] = useState("2K");
-  const [isProcessing, setIsProcessing] = useState(false);  // 全局生成状态（文生图）
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());  // 正在处理的图片 ID
   const [showSettings, setShowSettings] = useState(false);
-  // Loading 占位区域位置（画布坐标系）
-  const [loadingPosition, setLoadingPosition] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
-  // 生成期间的参考图片 ID（用于显示临时连接线）
-  const [loadingSourceIds, setLoadingSourceIds] = useState<string[]>([]);
+  // 并发生成任务列表
+  const [generatingTasks, setGeneratingTasks] = useState<Array<{
+    id: string;
+    position: { x: number; y: number; width: number; height: number };
+    sourceIds: string[];
+  }>>([]);
 
   // Dragging State
   const [isDragging, setIsDragging] = useState(false);
@@ -207,7 +208,6 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
   const nameInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const loadingPositionRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
   const mousePositionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 }); // 鼠标位置（画布坐标）
   const textMeasureRef = useRef<HTMLDivElement>(null); // 用于测量文字尺寸
 
@@ -488,9 +488,9 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
             const loadingY = -pan.y / scale - displaySize / 2;
             const initialPosition = { x: loadingX, y: loadingY, width: displaySize, height: displaySize };
 
-            setLoadingPosition(initialPosition);
-            loadingPositionRef.current = initialPosition;
-            setIsProcessing(true);
+            // 创建任务
+            const taskId = generateId();
+            setGeneratingTasks(prev => [...prev, { id: taskId, position: initialPosition, sourceIds: [] }]);
 
             try {
               const newImageSrc = await API.generateImage({
@@ -501,37 +501,32 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
               const img = new window.Image();
               img.src = newImageSrc;
               img.onload = () => {
-                // 使用 ref 获取最新的 loading 位置（用户可能拖动了）
-                const currentPos = loadingPositionRef.current;
-                const finalX = currentPos?.x ?? loadingX;
-                const finalY = currentPos?.y ?? loadingY;
+                setGeneratingTasks(prev => {
+                  const task = prev.find(t => t.id === taskId);
+                  const finalX = task?.position.x ?? loadingX;
+                  const finalY = task?.position.y ?? loadingY;
 
-                const newItem: CanvasItem = {
-                  id: generateId(),
-                  type: 'image',
-                  src: newImageSrc,
-                  x: finalX,
-                  y: finalY,
-                  width: displaySize,
-                  height: displaySize,
-                  zIndex: items.length + 1,
-                  prompt: pendingPromptText
-                };
-                setItems(prev => [...prev, newItem]);
-                setSelectedIds([newItem.id]);
-                setPrompt('');
-                // 清理 loading 状态
-                setLoadingPosition(null);
-                loadingPositionRef.current = null;
+                  const newItem: CanvasItem = {
+                    id: generateId(),
+                    type: 'image',
+                    src: newImageSrc,
+                    x: finalX,
+                    y: finalY,
+                    width: displaySize,
+                    height: displaySize,
+                    zIndex: items.length + 1,
+                    prompt: pendingPromptText
+                  };
+                  setItems(prevItems => [...prevItems, newItem]);
+                  setSelectedIds([newItem.id]);
+                  setPrompt('');
+                  return prev.filter(t => t.id !== taskId);
+                });
               };
             } catch (error) {
               console.error('Auto-generate failed:', error);
               alert(error instanceof Error ? error.message : '生成失败，请检查后端服务是否正常运行。');
-              // 清理 loading 状态
-              setLoadingPosition(null);
-              loadingPositionRef.current = null;
-            } finally {
-              setIsProcessing(false);
+              setGeneratingTasks(prev => prev.filter(t => t.id !== taskId));
             }
           }, 100);
         }
@@ -798,30 +793,38 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
     if (promptTextareaRef.current) {
       promptTextareaRef.current.style.height = 'auto';
     }
-    setIsProcessing(true);
 
-    // 计算 loading 占位区域的位置和尺寸（在视口中心）
+    // 计算 loading 占位区域的位置和尺寸（在视口中心，支持错开）
     const displaySize = DEFAULT_IMAGE_SIZE;
     const [w, h] = aspectRatio.split(':').map(Number);
     const ratio = w / h;
     const width = ratio >= 1 ? displaySize : displaySize * ratio;
     const height = ratio >= 1 ? displaySize / ratio : displaySize;
-    // 视口中心对应的画布坐标 = -pan / scale
-    const loadingX = -pan.x / scale - width / 2;
-    const loadingY = -pan.y / scale - height / 2;
+    // 根据现有任务数量错开位置
+    const offset = generatingTasks.length * 30;
+    const loadingX = -pan.x / scale - width / 2 + offset;
+    const loadingY = -pan.y / scale - height / 2 + offset;
     const initialPosition = { x: loadingX, y: loadingY, width, height };
-    setLoadingPosition(initialPosition);
-    loadingPositionRef.current = initialPosition;
+
+    // 获取所有选中的图片（支持多参考图）
+    const selectedImages = selectedIds.length > 0
+      ? items.filter(item => selectedIds.includes(item.id) && item.type === 'image')
+      : [];
+
+    // 创建任务 ID 并添加到任务列表
+    const taskId = generateId();
+    const newTask = {
+      id: taskId,
+      position: initialPosition,
+      sourceIds: selectedImages.map(img => img.id),
+    };
+    setGeneratingTasks(prev => [...prev, newTask]);
+
+    // 保存当前 aspectRatio 和 resolution 供闭包使用
+    const currentAspectRatio = aspectRatio;
+    const currentResolution = resolution;
 
     try {
-      // 获取所有选中的图片（支持多参考图）
-      const selectedImages = selectedIds.length > 0
-        ? items.filter(item => selectedIds.includes(item.id) && item.type === 'image')
-        : [];
-
-      // 设置参考图片 ID，用于显示临时连接线
-      setLoadingSourceIds(selectedImages.map(img => img.id));
-
       let newImageSrc: string;
 
       if (selectedImages.length > 0) {
@@ -837,65 +840,64 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
         // 文生图模式
         newImageSrc = await API.generateImage({
           prompt: currentPrompt,
-          aspectRatio,
-          size: resolution,
+          aspectRatio: currentAspectRatio,
+          size: currentResolution,
         });
       }
 
-      // 统一处理：创建新图片添加到画布（使用 ref 获取最新的 loading 位置）
+      // 统一处理：创建新图片添加到画布
       const img = new window.Image();
       img.src = newImageSrc;
       img.onload = () => {
-        // 使用 ref 获取最新的 loading 位置（用户可能拖动了）
-        const currentPos = loadingPositionRef.current;
-        const finalX = currentPos?.x ?? loadingX;
-        const finalY = currentPos?.y ?? loadingY;
+        // 获取最新的任务位置（用户可能拖动了）
+        setGeneratingTasks(prev => {
+          const task = prev.find(t => t.id === taskId);
+          const finalX = task?.position.x ?? loadingX;
+          const finalY = task?.position.y ?? loadingY;
 
-        // 使用图片的实际尺寸，缩小50%面积（宽高各乘0.707）
-        const SCALE_FACTOR = 0.707; // √0.5 ≈ 0.707
-        const actualWidth = Math.round(img.naturalWidth * SCALE_FACTOR);
-        const actualHeight = Math.round(img.naturalHeight * SCALE_FACTOR);
+          // 使用图片的实际尺寸，缩小50%面积（宽高各乘0.707）
+          const SCALE_FACTOR = 0.707; // √0.5 ≈ 0.707
+          const actualWidth = Math.round(img.naturalWidth * SCALE_FACTOR);
+          const actualHeight = Math.round(img.naturalHeight * SCALE_FACTOR);
 
-        const newItem: CanvasItem = {
-          id: generateId(),
-          type: 'image',
-          src: newImageSrc,
-          x: finalX,
-          y: finalY,
-          width: actualWidth,
-          height: actualHeight,
-          zIndex: items.length + 1,
-          prompt: currentPrompt
-        };
+          const newItem: CanvasItem = {
+            id: generateId(),
+            type: 'image',
+            src: newImageSrc,
+            x: finalX,
+            y: finalY,
+            width: actualWidth,
+            height: actualHeight,
+            zIndex: items.length + 1,
+            prompt: currentPrompt
+          };
 
-        // 如果有参考图片，创建溯源连接线
-        const connectionLines: CanvasItem[] = [];
-        if (selectedImages.length > 0) {
-          // 多图时计算统一终点
-          const fixedEnd = selectedImages.length > 1
-            ? calcUnifiedEndPoint(selectedImages, newItem)
-            : undefined;
-          selectedImages.forEach(sourceImage => {
-            const connection = createConnectionCurve(sourceImage, newItem, fixedEnd);
-            connectionLines.push(connection);
-          });
-        }
+          // 如果有参考图片，创建溯源连接线
+          const connectionLines: CanvasItem[] = [];
+          if (selectedImages.length > 0) {
+            // 多图时计算统一终点
+            const fixedEnd = selectedImages.length > 1
+              ? calcUnifiedEndPoint(selectedImages, newItem)
+              : undefined;
+            selectedImages.forEach(sourceImage => {
+              const connection = createConnectionCurve(sourceImage, newItem, fixedEnd);
+              connectionLines.push(connection);
+            });
+          }
 
-        setItems(prev => [...prev, ...connectionLines, newItem]);
-        setSelectedIds([newItem.id]);
-        setLoadingPosition(null);
-        loadingPositionRef.current = null;
-        setLoadingSourceIds([]);
+          setItems(prevItems => [...prevItems, ...connectionLines, newItem]);
+          setSelectedIds([newItem.id]);
+
+          // 移除完成的任务
+          return prev.filter(t => t.id !== taskId);
+        });
       };
 
     } catch (error) {
       console.error(error);
       alert("处理失败，请检查后端服务是否正常运行。");
-      setLoadingPosition(null);
-      loadingPositionRef.current = null;
-      setLoadingSourceIds([]);
-    } finally {
-      setIsProcessing(false);
+      // 移除失败的任务
+      setGeneratingTasks(prev => prev.filter(t => t.id !== taskId));
     }
   };
 
@@ -2974,13 +2976,12 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
               </div>
             );          })()}
 
-          {/* AI 生成中 Loading 状态 - 在画布内渲染 */}
-          {isProcessing && loadingPosition && (
-            <>
-              {/* 临时连接线：从参考图片到占位框（就近原则）*/}
-              {loadingSourceIds.length > 0 && (() => {
-                // 计算统一终点
-                const sourceItems = loadingSourceIds
+          {/* AI 生成中 Loading 状态 - 支持多个并发任务 */}
+          {generatingTasks.map(task => (
+            <React.Fragment key={task.id}>
+              {/* 临时连接线：从参考图片到占位框 */}
+              {task.sourceIds.length > 0 && (() => {
+                const sourceItems = task.sourceIds
                   .map(id => items.find(i => i.id === id))
                   .filter((s): s is CanvasItem => !!s);
                 if (sourceItems.length === 0) return null;
@@ -2988,17 +2989,16 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
                 const gap = 12;
                 const avgX = sourceItems.reduce((sum, s) => sum + s.x + s.width / 2, 0) / sourceItems.length;
                 const avgY = sourceItems.reduce((sum, s) => sum + s.y + s.height / 2, 0) / sourceItems.length;
-                const tCx = loadingPosition.x + loadingPosition.width / 2;
-                const tCy = loadingPosition.y + loadingPosition.height / 2;
+                const tCx = task.position.x + task.position.width / 2;
+                const tCy = task.position.y + task.position.height / 2;
                 const ddx = tCx - avgX;
                 const ddy = tCy - avgY;
                 const isVertical = Math.abs(ddy) > Math.abs(ddx);
-                // 统一终点
                 const fixedEndX = !isVertical
-                  ? (ddx > 0 ? loadingPosition.x - gap : loadingPosition.x + loadingPosition.width + gap)
+                  ? (ddx > 0 ? task.position.x - gap : task.position.x + task.position.width + gap)
                   : tCx;
                 const fixedEndY = isVertical
-                  ? (ddy > 0 ? loadingPosition.y - gap : loadingPosition.y + loadingPosition.height + gap)
+                  ? (ddy > 0 ? task.position.y - gap : task.position.y + task.position.height + gap)
                   : tCy;
 
                 return sourceItems.map(sourceItem => {
@@ -3028,22 +3028,12 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
 
                   return (
                     <svg
-                      key={sourceItem.id}
+                      key={`${task.id}-${sourceItem.id}`}
                       className="absolute overflow-visible pointer-events-none"
                       style={{ left: svgX, top: svgY, width: svgW, height: svgH }}
                     >
-                      <path
-                        d={pathD}
-                        stroke="#a78bfa"
-                        strokeWidth={3}
-                        fill="none"
-                        strokeLinecap="round"
-                        opacity="0.6"
-                        strokeDasharray="6 4"
-                      />
-                      {/* 起点圆点 */}
+                      <path d={pathD} stroke="#a78bfa" strokeWidth={3} fill="none" strokeLinecap="round" opacity="0.6" strokeDasharray="6 4" />
                       <circle cx={sx} cy={sy} r="4" fill="#a78bfa" opacity="0.7" />
-                      {/* 终点圆点 */}
                       <circle cx={ex} cy={ey} r="4" fill="#a78bfa" opacity="0.7" />
                     </svg>
                   );
@@ -3052,28 +3042,25 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
               <div
                 className="absolute rounded-xl cursor-move bg-gray-50 border-2 border-dashed border-gray-300 z-50"
                 style={{
-                  left: loadingPosition.x,
-                  top: loadingPosition.y,
-                  width: loadingPosition.width,
-                  height: loadingPosition.height,
+                  left: task.position.x,
+                  top: task.position.y,
+                  width: task.position.width,
+                  height: task.position.height,
                 }}
                 onMouseDown={(e) => {
                   e.stopPropagation();
                   const startX = e.clientX;
                   const startY = e.clientY;
-                  const startPosX = loadingPosition.x;
-                  const startPosY = loadingPosition.y;
+                  const startPosX = task.position.x;
+                  const startPosY = task.position.y;
+                  const taskId = task.id;
 
                   const handleMouseMove = (moveEvent: MouseEvent) => {
                     const dx = (moveEvent.clientX - startX) / scale;
                     const dy = (moveEvent.clientY - startY) / scale;
-                    const newPos = {
-                      ...loadingPosition,
-                      x: startPosX + dx,
-                      y: startPosY + dy,
-                    };
-                    setLoadingPosition(newPos);
-                    loadingPositionRef.current = newPos;
+                    setGeneratingTasks(prev => prev.map(t =>
+                      t.id === taskId ? { ...t, position: { ...t.position, x: startPosX + dx, y: startPosY + dy } } : t
+                    ));
                   };
 
                   const handleMouseUp = () => {
@@ -3090,8 +3077,8 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
                   <p className="text-gray-500 text-sm font-medium">生成中...</p>
                 </div>
               </div>
-            </>
-          )}
+            </React.Fragment>
+          ))}
         </div>
 
         {/* 框选矩形 */}
@@ -3328,7 +3315,7 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
                   }}
                   onKeyDown={(e) => {
                     // Enter 发送，Shift+Enter 换行
-                    if (e.key === 'Enter' && !e.shiftKey && !isProcessing) {
+                    if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
                       handleGenerate();
                     }
@@ -3348,13 +3335,11 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
                 {/* Generate Button - 无输入显示箭头，有输入显示傻币消耗 */}
                 <button
                   onClick={handleGenerate}
-                  disabled={isProcessing || !prompt.trim()}
+                  disabled={!prompt.trim()}
                   className={`flex items-center gap-1 rounded-full transition-all duration-300 ${
                     !prompt.trim()
                       ? 'p-2 bg-gray-100 text-gray-300 cursor-not-allowed'
-                      : isProcessing
-                        ? 'px-2.5 py-1.5 bg-violet-300 text-white cursor-not-allowed'
-                        : 'px-2.5 py-1.5 bg-violet-500 hover:bg-violet-600 text-white shadow-md'
+                      : 'px-2.5 py-1.5 bg-violet-500 hover:bg-violet-600 text-white shadow-md'
                   }`}
                   title={prompt.trim() ? `生成消耗 ${getGenerateCreditCost(resolution)} 傻币` : '请输入提示词'}
                 >
