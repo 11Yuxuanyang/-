@@ -4,20 +4,79 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-三傻大闹AI圈 (CanvasAI Studio) - 前后端分离的 AI 图像生成和编辑画布应用。支持多 AI 模型提供商、实时协作。
+三傻大闹AI圈 (CanvasAI Studio) - 前后端分离的 AI 图像生成和编辑画布应用。支持多 AI 模型提供商、实时协作、用户认证、云端存储。
+
+## 项目进度
+
+### ✅ 已完成
+- [x] CI/CD 自动部署 (GitHub Actions + SSH)
+- [x] 强制登录功能（未登录弹出登录框）
+- [x] 项目云端存储（Supabase PostgreSQL）
+- [x] 用户认证系统（手机号 + 验证码）
+- [x] 数据库配置（users, projects, verification_codes, usage_records）
+- [x] AI 图片生成（豆包 Seedream）
+- [x] AI 聊天（OpenRouter minimax-m2.1）
+- [x] 图片存储（火山引擎 TOS）
+
+### ⏳ 待开发
+- [ ] 短信验证码服务（接入阿里云/火山引擎短信）
+- [ ] 微信扫码登录（需企业资质+备案域名）
+- [ ] 后端 API 鉴权保护
+- [ ] 域名 + HTTPS 配置
+- [ ] 用量统计/配额限制
+- [ ] 支付接入（微信/支付宝）
+- [ ] 会员订阅体系
+
+## 部署信息
+
+### 生产环境
+- **服务器**: 阿里云 ECS (47.97.103.6)
+- **前端**: Nginx 静态文件 (`/www/wwwroot/canvasai/packages/client/dist`)
+- **后端**: PM2 + tsx (`/www/wwwroot/canvasai/packages/server`)
+- **数据库**: Supabase (PostgreSQL)
+- **图片存储**: 火山引擎 TOS
+
+### CI/CD
+- **仓库**: https://github.com/11Yuxuanyang/3Fools-AI
+- **部署方式**: GitHub Actions → SSH → 自动拉取构建重启
+- **触发条件**: push 到 main 分支
+
+### 服务器常用命令
+```bash
+# 进入项目目录
+cd /www/wwwroot/canvasai
+
+# 拉取最新代码
+git pull origin main
+
+# 构建前端
+rm -rf packages/client/dist
+npm run build:client
+
+# 重启后端
+pm2 restart canvasai
+pm2 logs canvasai
+
+# 查看服务状态
+pm2 list
+```
 
 ## 项目结构 (Monorepo)
 
 ```
+├── .github/workflows/    # CI/CD 配置
+│   └── deploy.yml
 ├── packages/
 │   ├── client/          # 前端 (React + Vite, 端口 3000)
 │   └── server/          # 后端 (Express + TypeScript, 端口 3001)
+│       └── ecosystem.config.cjs  # PM2 配置
+├── nginx.conf.example   # Nginx 配置示例
 └── package.json         # workspace 配置
 ```
 
 ## 环境要求
 
-- Node.js 18+
+- Node.js 20+ (服务器已升级)
 
 ## Commands
 
@@ -48,32 +107,42 @@ npm run format:check
 
 ## 后端配置
 
-复制 `packages/server/.env.example` 为 `.env` 并配置 AI 提供商:
+服务器 `.env` 文件位置: `/www/wwwroot/canvasai/packages/server/.env`
 
 ```env
-# 默认提供商选择
-DEFAULT_IMAGE_PROVIDER=openai    # openai, doubao, qwen, custom
-DEFAULT_CHAT_PROVIDER=openrouter # openai, doubao, openrouter, custom
+# 服务配置
+PORT=3001
+NODE_ENV=production
+CORS_ORIGIN=http://47.97.103.6
 
-# OpenAI
-OPENAI_API_KEY=
-OPENAI_CHAT_MODEL=gpt-4o
-OPENAI_IMAGE_MODEL=dall-e-3
+# 默认提供商
+DEFAULT_IMAGE_PROVIDER=doubao
+DEFAULT_CHAT_PROVIDER=openrouter
 
-# 豆包 (火山引擎)
-DOUBAO_API_KEY=
-DOUBAO_CHAT_API_KEY=           # 可选，聊天专用 Key
-DOUBAO_CHAT_MODEL=
-DOUBAO_IMAGE_MODEL=
+# 豆包 (火山引擎) - 图片生成
+DOUBAO_API_KEY=xxx
+DOUBAO_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+DOUBAO_IMAGE_MODEL=doubao-seedream-4-0-250828
 
-# OpenRouter (推荐聊天)
-OPENROUTER_API_KEY=
+# OpenRouter - 聊天
+OPENROUTER_API_KEY=xxx
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 OPENROUTER_CHAT_MODEL=minimax/minimax-m2.1
 
-# 通义千问 (阿里云百炼)
-QWEN_API_KEY=
-QWEN_IMAGE_MODEL=
-QWEN_CHAT_MODEL=
+# Supabase - 数据库
+SUPABASE_URL=https://xxx.supabase.co
+SUPABASE_ANON_KEY=xxx
+SUPABASE_SERVICE_ROLE_KEY=xxx
+
+# 火山引擎 TOS - 图片存储
+TOS_ACCESS_KEY=xxx
+TOS_SECRET_KEY=xxx
+TOS_ENDPOINT=tos-cn-beijing.volces.com
+TOS_REGION=cn-beijing
+TOS_BUCKET=canvasai-studio
+
+# JWT
+JWT_SECRET=xxx
 ```
 
 ### 添加新的 AI 提供商
@@ -87,27 +156,45 @@ QWEN_CHAT_MODEL=
 ### Tech Stack
 - **前端**: React 19 + TypeScript + Vite + Tailwind CSS
 - **后端**: Node.js + Express + TypeScript + Zod (验证)
+- **数据库**: Supabase (PostgreSQL)
+- **图片存储**: 火山引擎 TOS
 - **实时协作**: Yjs + Socket.io
 
+### 数据库表结构 (Supabase)
+
+```sql
+-- 用户表
+users (id, phone, wechat_openid, nickname, avatar_url, membership_type, ...)
+
+-- 项目表
+projects (id, user_id, name, items, viewport, thumbnail, is_deleted, ...)
+
+-- 验证码表
+verification_codes (id, phone, code, expires_at, used, ...)
+
+-- 用量记录表
+usage_records (id, user_id, action_type, tokens_used, cost_cents, ...)
+```
+
 ### 前端核心结构 (packages/client/src)
-- `components/CanvasEditor.tsx` - 画布编辑器（核心组件，内联遮罩编辑、多选、拖拽等）
-- `components/chatbot/` - AI 对话面板（Markdown 渲染、流式响应、画布上下文）
-- `components/Canvas/hooks/` - 画布状态管理 hooks (useCanvasState, useAutoSave)
-- `components/Collaboration/` - 实时协作组件（在线用户、协作光标）
-- `hooks/useMaskEditing.ts` - 图片遮罩擦除/重绘逻辑
-- `services/api.ts` - 后端 API 调用（含流式聊天）
+- `components/CanvasEditor.tsx` - 画布编辑器（核心组件）
+- `components/HomePage.tsx` - 首页（项目列表、登录入口）
+- `components/LoginModal.tsx` - 登录弹窗（手机号/微信）
+- `components/chatbot/` - AI 对话面板
+- `services/auth.ts` - 认证服务（Token 管理）
+- `services/projectService.ts` - 项目服务（本地+云端存储）
+- `services/api.ts` - 后端 API 调用
 
 ### 后端核心结构 (packages/server/src)
-- `providers/` - AI 图片提供商 (OpenAI, 豆包, 千问, 自定义)
-- `providers/chat-*.ts` - 聊天提供商（OpenRouter, 豆包等）
+- `providers/` - AI 图片提供商 (OpenAI, 豆包, 千问)
+- `providers/chat-*.ts` - 聊天提供商
 - `routes/ai.ts` - 图片生成/编辑 API
-- `routes/chat.ts` - 聊天 API（流式/非流式）
-- `routes/auth.ts` - 微信扫码登录、JWT 认证
-- `routes/projects.ts` - 项目云端同步
-- `services/webSearch.ts` - DuckDuckGo 联网搜索
-- `services/rag/` - RAG 知识库（文档解析、向量检索）
-- `middleware/validation.ts` - Zod 请求验证 schemas
-- `config.ts` - 多提供商配置管理
+- `routes/chat.ts` - 聊天 API
+- `routes/auth.ts` - 认证 API（手机号、微信）
+- `routes/projects.ts` - 项目云端同步 API
+- `services/authService.ts` - 认证服务（JWT、验证码）
+- `services/tosUpload.ts` - TOS 图片上传
+- `lib/supabase.ts` - Supabase 客户端
 
 ### API 端点
 
@@ -118,17 +205,23 @@ QWEN_CHAT_MODEL=
 - `POST /api/ai/upscale` - 图片放大
 
 **聊天**
-- `POST /api/chat` - 聊天（支持 `stream: true` 流式响应，`canvasContext` 画布上下文，`webSearchEnabled` 联网搜索）
+- `POST /api/chat` - 聊天（支持流式、画布上下文、联网搜索）
 - `GET /api/chat/health` - 聊天服务状态
 
 **认证**
-- `GET /api/auth/wechat/qrcode` - 获取微信扫码登录二维码
-- `GET /api/auth/wechat/callback` - 微信登录回调
-- `GET /api/auth/me` - 获取当前用户信息
+- `POST /api/auth/phone/send-code` - 发送手机验证码
+- `POST /api/auth/phone/verify` - 验证码登录/注册
+- `GET /api/auth/wechat/qrcode` - 获取微信登录二维码
+- `GET /api/auth/wechat/status/:state` - 轮询微信登录状态
+- `GET /api/auth/user` - 获取当前用户信息
 
-**项目云端同步**
+**项目**
 - `GET /api/projects` - 获取用户项目列表
-- `POST /api/projects` - 保存项目
+- `GET /api/projects/:id` - 获取项目详情
+- `POST /api/projects` - 创建项目
+- `PUT /api/projects/:id` - 更新项目
+- `DELETE /api/projects/:id` - 删除项目
+- `POST /api/projects/:id/duplicate` - 复制项目
 
 **通用**
 - `GET /api/config` - 获取配置
@@ -146,7 +239,9 @@ QWEN_CHAT_MODEL=
 
 **聊天流式**: SSE (Server-Sent Events) 格式，心跳保活
 
-**数据持久化**: localStorage (`canvasai_projects`)，500ms debounce 自动保存
+**数据持久化**:
+- 未登录用户: localStorage (`canvasai_projects`)
+- 登录用户: Supabase 云端 + localStorage 双写
 
 **路径别名**: 前端 `@/` → `packages/client/src/`
 
