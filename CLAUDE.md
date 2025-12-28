@@ -17,15 +17,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [x] AI 图片生成（豆包 Seedream）
 - [x] AI 聊天（OpenRouter minimax-m2.1）
 - [x] 图片存储（火山引擎 TOS）
+- [x] 积分系统（每日免费额度，自动重置）
+- [x] AI 擦除/重绘功能优化
+- [x] 积分显示组件（CreditDisplay）
 
 ### ⏳ 待开发
 - [ ] 短信验证码服务（接入阿里云/火山引擎短信）
 - [ ] 微信扫码登录（需企业资质+备案域名）
-- [ ] 后端 API 鉴权保护
 - [ ] 域名 + HTTPS 配置
-- [ ] 用量统计/配额限制
 - [ ] 支付接入（微信/支付宝）
-- [ ] 会员订阅体系
+- [ ] 会员订阅体系（付费增加额度）
 
 ## 部署信息
 
