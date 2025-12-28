@@ -4,10 +4,18 @@
  */
 
 import { ParsedDocument } from '../../types/document.js';
-import { createRequire } from 'module';
 
-const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse');
+type PdfParseFunc = (buffer: Buffer) => Promise<{ text: string; numpages: number }>;
+let pdfParse: PdfParseFunc | null = null;
+
+async function getPdfParse(): Promise<PdfParseFunc> {
+  if (!pdfParse) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const module = await import('pdf-parse') as any;
+    pdfParse = module.default ?? module;
+  }
+  return pdfParse!;
+}
 
 interface PDFData {
   text: string;
@@ -16,7 +24,8 @@ interface PDFData {
 
 export class PDFProcessor {
   async parse(buffer: Buffer, fileName: string): Promise<ParsedDocument> {
-    const data: PDFData = await pdfParse(buffer);
+    const parse = await getPdfParse();
+    const data: PDFData = await parse(buffer);
 
     // 按页分割（\f 是分页符）
     const pageTexts = data.text.split('\f');

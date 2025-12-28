@@ -46,7 +46,7 @@ function delay(ms: number): Promise<void> {
  * 带超时和重试的请求函数
  */
 async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
-  const { timeout = 30000, retries = 0, retryDelay = 1000, ...fetchOptions } = options;
+  const { timeout = 30000, retries = 0, retryDelay = 1000, headers: customHeaders, ...fetchOptions } = options;
 
   let lastError: Error | null = null;
 
@@ -56,11 +56,12 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
 
     try {
       const response = await fetch(`${API_BASE}${endpoint}`, {
+        ...fetchOptions,
         headers: {
           'Content-Type': 'application/json',
+          ...customHeaders,
         },
         signal: controller.signal,
-        ...fetchOptions,
       });
 
       clearTimeout(timeoutId);
@@ -126,6 +127,9 @@ export async function generateImage(params: {
     body: JSON.stringify(params),
     timeout: 120000, // AI 生成需要更长时间，融合可能更久
     retries: 1,
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem('token')}`,
+    },
   });
   return image;
 }
@@ -144,6 +148,9 @@ export async function editImage(params: {
     body: JSON.stringify(params),
     timeout: 60000,
     retries: 1,
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem('token')}`,
+    },
   });
   return image;
 }
@@ -162,6 +169,9 @@ export async function inpaintImage(params: {
     body: JSON.stringify(params),
     timeout: 60000,
     retries: 1,
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem('token')}`,
+    },
   });
   return image;
 }
@@ -175,6 +185,9 @@ export async function upscaleImage(params: { image: string; resolution?: '2K' | 
     body: JSON.stringify(params),
     timeout: 120000, // 放大可能需要更长时间
     retries: 1,
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem('token')}`,
+    },
   });
   return image;
 }

@@ -2899,6 +2899,19 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
                     />
                   </div>
                 )}
+                {/* 底部提示词显示 - 仅当图片有提示词时显示 */}
+                {isSelected && selectedIds.length === 1 && !isPanning && !isDragging && item.type === 'image' && !maskEditingId && item.prompt && (
+                  <div
+                    className="absolute bottom-0 left-1/2"
+                    style={{ transform: `translateX(-50%) translateY(100%) scale(${1 / scale})`, transformOrigin: 'top center' }}
+                  >
+                    <div className="mt-2 px-3 py-2 bg-white/95 backdrop-blur-sm rounded-lg shadow-lg border border-gray-200/80 max-w-xs">
+                      <p className="text-xs text-gray-500 truncate" title={item.prompt}>
+                        {item.prompt}
+                      </p>
+                    </div>
+                  </div>
+                )}
                 {/* Simple delete button for non-image items (single select only) */}
               </div>
             );
