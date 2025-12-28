@@ -1,5 +1,9 @@
 /**
  * Chat API 路由
+ *
+ * 支持两种模式：
+ * 1. LangGraph 模式（推荐）：服务端维护对话历史，通过 threadId 区分会话
+ * 2. 传统模式：客户端发送完整消息历史
  */
 
 import { Router, Request, Response } from 'express';
@@ -9,6 +13,7 @@ import { asyncHandler, validateBody, schemas } from '../middleware/index.js';
 import { searchWeb, formatSearchResultsForContext } from '../services/webSearch.js';
 import { ragService, IndexedDocument } from '../services/rag/index.js';
 import { documentParser } from '../services/documentParser.js';
+import * as langGraphChat from '../services/langGraphChat.js';
 
 export const chatRouter = Router();
 
@@ -42,14 +47,31 @@ function extractSearchQuery(messages: ChatMessageInput[]): string {
 }
 
 /**
+ * 获取当前日期信息
+ */
+function getCurrentDateInfo(): string {
+  const now = new Date();
+  const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const day = now.getDate();
+  const weekDay = weekDays[now.getDay()];
+  return `${year}年${month}月${day}日，星期${weekDay}`;
+}
+
+/**
  * 构建系统提示词
  */
 function buildSystemPrompt(webSearchEnabled: boolean): string {
+  const currentDate = getCurrentDateInfo();
+
   let prompt = `<assistant>
   <identity>
     <name>三傻</name>
     <personality>充满创意和灵感的 AI 助手，名字虽"傻"但很聪明，热爱创作</personality>
   </identity>
+
+  <current_time>${currentDate}</current_time>
 
   <capabilities>
     <skill name="剧本创作">故事大纲、分镜脚本、场景描写、人物塑造</skill>
@@ -171,13 +193,125 @@ async function retrieveDocumentContext(
 /**
  * POST /api/chat
  * 聊天对话端点
+ *
+ * 支持两种模式：
+ * 1. LangGraph 模式：发送 { message, threadId } - 服务端维护历史
+ * 2. 传统模式：发送 { messages } - 客户端维护历史
  */
 chatRouter.post(
   '/',
   validateBody(schemas.chatMessage),
   asyncHandler(async (req: Request, res: Response) => {
-    const { messages, webSearchEnabled, stream, canvasContext } = req.body;
+    const {
+      messages,
+      message,      // LangGraph 模式：当前消息
+      threadId,     // LangGraph 模式：会话 ID
+      attachments,  // LangGraph 模式：附件
+      webSearchEnabled,
+      stream,
+      canvasContext,
+    } = req.body;
 
+    // 判断使用哪种模式
+    const useLangGraph = langGraphChat.isLangGraphEnabled() && threadId && message;
+
+    if (useLangGraph) {
+      // ========== LangGraph 模式 ==========
+      console.log(`[Chat] LangGraph 模式: threadId=${threadId}`);
+
+      // 构建系统提示词
+      let systemPrompt = buildSystemPrompt(webSearchEnabled);
+
+      // 处理文档附件（RAG）
+      if (attachments && attachments.length > 0) {
+        try {
+          // 构造兼容格式的消息用于 RAG 处理
+          const tempMessages: ChatMessageInput[] = [{
+            role: 'user',
+            content: message,
+            attachments,
+          }];
+          const indexedDocs = await processDocumentAttachments(tempMessages);
+          if (indexedDocs.length > 0) {
+            const documentIds = indexedDocs.map(d => d.id);
+            const ragContext = await retrieveDocumentContext(message, documentIds);
+            if (ragContext) {
+              systemPrompt += ragContext;
+              console.log(`[Chat] LangGraph RAG: 检索到 ${indexedDocs.length} 个文档`);
+            }
+          }
+        } catch (error) {
+          console.error('[Chat] LangGraph RAG 处理失败:', error);
+        }
+      }
+
+      // 画布上下文提示
+      if (canvasContext && canvasContext.items.length > 0) {
+        systemPrompt += `\n\n<canvas_available>
+  <instruction>用户正在使用画布编辑器，画布上有 ${canvasContext.items.length} 个元素。</instruction>
+</canvas_available>`;
+      }
+
+      if (stream) {
+        // 流式响应
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no');
+
+        let isClientConnected = true;
+        res.on('close', () => {
+          isClientConnected = false;
+        });
+
+        const heartbeat = setInterval(() => {
+          if (isClientConnected) {
+            res.write(': heartbeat\n\n');
+          }
+        }, 15000);
+
+        try {
+          for await (const chunk of langGraphChat.chatStream({
+            message,
+            threadId,
+            webSearchEnabled,
+            canvasContext,
+            systemPrompt,
+          })) {
+            if (!isClientConnected) break;
+            res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`);
+          }
+          if (isClientConnected) {
+            res.write('data: [DONE]\n\n');
+          }
+        } catch (error) {
+          if (isClientConnected) {
+            const errorMessage = error instanceof Error ? error.message : '流式响应失败';
+            res.write(`data: ${JSON.stringify({ error: errorMessage })}\n\n`);
+          }
+        } finally {
+          clearInterval(heartbeat);
+        }
+        res.end();
+      } else {
+        // 非流式响应
+        const response = await langGraphChat.chat({
+          message,
+          threadId,
+          webSearchEnabled,
+          canvasContext,
+          systemPrompt,
+        });
+
+        res.json({
+          success: true,
+          data: { message: response },
+        });
+      }
+      return;
+    }
+
+    // ========== 传统模式（向后兼容）==========
     const provider = getChatProvider();
 
     // 构建系统提示词
@@ -204,7 +338,6 @@ chatRouter.post(
           }
         } catch (error) {
           console.error('[Chat] 搜索失败:', error);
-          // 搜索失败不影响对话继续
         }
       }
     }
@@ -215,11 +348,10 @@ chatRouter.post(
       const indexedDocs = await processDocumentAttachments(messages);
       if (indexedDocs.length > 0) {
         indexedDocumentIds = indexedDocs.map(d => d.id);
-        console.log(`[Chat] 已索引 ${indexedDocs.length} 个文档，共 ${indexedDocs.reduce((sum, d) => sum + d.chunkCount, 0)} 个片段`);
+        console.log(`[Chat] 已索引 ${indexedDocs.length} 个文档`);
       }
     } catch (error) {
       console.error('[Chat] 文档索引失败:', error);
-      // 文档索引失败不影响对话继续
     }
 
     // 如果有文档，使用 RAG 检索相关内容
@@ -230,7 +362,6 @@ chatRouter.post(
           const ragContext = await retrieveDocumentContext(userQuery, indexedDocumentIds);
           if (ragContext) {
             systemPrompt += ragContext;
-            console.log(`[Chat] RAG 检索完成，已注入相关上下文`);
           }
         } catch (error) {
           console.error('[Chat] RAG 检索失败:', error);
@@ -242,19 +373,16 @@ chatRouter.post(
     const fullMessages: ChatMessageInput[] = [{ role: 'system', content: systemPrompt }, ...messages];
 
     if (stream) {
-      // 流式响应
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
       res.setHeader('X-Accel-Buffering', 'no');
 
-      // 处理客户端断开连接
       let isClientConnected = true;
       res.on('close', () => {
         isClientConnected = false;
       });
 
-      // 心跳定时器
       const heartbeat = setInterval(() => {
         if (isClientConnected) {
           res.write(': heartbeat\n\n');
@@ -279,7 +407,6 @@ chatRouter.post(
       }
       res.end();
     } else {
-      // 普通响应
       const response = await provider.chat({ messages: fullMessages, webSearchEnabled, canvasContext });
 
       res.json({
@@ -297,13 +424,62 @@ chatRouter.post(
  * GET /api/chat/health
  * Chat 服务健康检查
  */
-chatRouter.get('/health', (_req: Request, res: Response) => {
+chatRouter.get('/health', asyncHandler(async (_req: Request, res: Response) => {
   const provider = getChatProvider();
+  const langGraphStatus = await langGraphChat.getLangGraphStatus();
+
   res.json({
     success: true,
     data: {
       provider: provider.name,
       status: 'ok',
+      langGraph: langGraphStatus,
     },
   });
-});
+}));
+
+/**
+ * GET /api/chat/sessions/:threadId/history
+ * 获取会话历史（LangGraph 模式）
+ */
+chatRouter.get('/sessions/:threadId/history', asyncHandler(async (req: Request, res: Response) => {
+  const { threadId } = req.params;
+
+  if (!langGraphChat.isLangGraphEnabled()) {
+    res.status(400).json({
+      success: false,
+      error: 'LangGraph 未启用',
+    });
+    return;
+  }
+
+  const history = await langGraphChat.getSessionHistory(threadId);
+
+  res.json({
+    success: true,
+    data: { messages: history },
+  });
+}));
+
+/**
+ * DELETE /api/chat/sessions/:threadId
+ * 删除会话（LangGraph 模式）
+ */
+chatRouter.delete('/sessions/:threadId', asyncHandler(async (req: Request, res: Response) => {
+  const { threadId } = req.params;
+
+  if (!langGraphChat.isLangGraphEnabled()) {
+    res.status(400).json({
+      success: false,
+      error: 'LangGraph 未启用',
+    });
+    return;
+  }
+
+  await langGraphChat.deleteSession(threadId);
+
+  res.json({
+    success: true,
+    message: '会话已删除',
+  });
+}));

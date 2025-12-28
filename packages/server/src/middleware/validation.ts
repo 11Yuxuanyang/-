@@ -147,8 +147,27 @@ export const schemas = {
   /**
    * 聊天请求
    * POST /api/chat
+   *
+   * 支持两种模式：
+   * 1. LangGraph 模式：{ message, threadId } - 服务端维护历史
+   * 2. 传统模式：{ messages } - 客户端维护历史
    */
   chatMessage: z.object({
+    // ===== LangGraph 模式参数 =====
+    message: z.string().max(LIMITS.MAX_MESSAGE_LENGTH, '消息内容过长').optional(),
+    threadId: z.string().optional(),
+    // LangGraph 模式下的附件（文档等）
+    attachments: z
+      .array(
+        z.object({
+          name: z.string().optional(),
+          type: z.string(),
+          content: z.string().max(LIMITS.MAX_IMAGE_SIZE, '附件内容过大'),
+        })
+      )
+      .optional(),
+
+    // ===== 传统模式参数 =====
     messages: z
       .array(
         z.object({
@@ -177,8 +196,10 @@ export const schemas = {
             .optional(),
         })
       )
-      .min(1, '消息列表不能为空')
-      .max(LIMITS.MAX_MESSAGES, '消息数量过多'),
+      .max(LIMITS.MAX_MESSAGES, '消息数量过多')
+      .optional(),  // 传统模式时必填，LangGraph 模式时可选
+
+    // ===== 通用参数 =====
     webSearchEnabled: z.boolean().optional().default(false),
     stream: z.boolean().optional().default(true),
     provider: providerSchema,
@@ -201,7 +222,11 @@ export const schemas = {
         selectedIds: z.array(z.string()),
       })
       .optional(),
-  }),
+  }).refine(
+    // 验证：必须提供 (message + threadId) 或 messages
+    (data) => (data.message && data.threadId) || (data.messages && data.messages.length > 0),
+    { message: '必须提供 message+threadId（LangGraph 模式）或 messages（传统模式）' }
+  ),
 };
 
 /**

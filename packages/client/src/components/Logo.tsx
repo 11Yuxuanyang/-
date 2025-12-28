@@ -27,13 +27,16 @@ export function Logo({ size = 32, showText = true, className = '' }: LogoProps) 
           <path d="M14 6.3L14.8 6" stroke="#1a1a1a" strokeWidth="0.5" strokeLinecap="round"/>
         </g>
 
-        {/* 左下幽灵 - 橙色 大笑吐舌 */}
+        {/* 左下幽灵 - 橙色 斗鸡眼傻笑 */}
         <g>
           <path d="M6.5 7C3.5 7 1.5 9 1.5 11.5V15C1.5 15 1.9 14.4 2.5 15C3.1 15.6 3.5 15 4 15C4.5 15 4.8 15.6 6.5 15C8.2 15.6 8.5 15 9 15C9.5 15 9.9 15.6 10.5 15C11.1 14.4 11.5 15 11.5 15V11.5C11.5 9 9.5 7 6.5 7Z" fill="#F97316"/>
-          <path d="M4.2 10Q5 9.3 5.8 10" stroke="#1a1a1a" strokeWidth="0.8" strokeLinecap="round"/>
-          <path d="M7.2 10Q8 9.3 8.8 10" stroke="#1a1a1a" strokeWidth="0.8" strokeLinecap="round"/>
-          <path d="M4.5 12Q6.5 14 8.5 12" stroke="#1a1a1a" strokeWidth="0.8" strokeLinecap="round" fill="none"/>
-          <ellipse cx="7.2" cy="13.5" rx="1" ry="0.6" fill="#F472B6" transform="rotate(20 7.2 13.5)"/>
+          {/* 斗鸡眼 - 眼珠往中间看 */}
+          <circle cx="5" cy="10.3" r="1.1" fill="white"/>
+          <circle cx="8" cy="10.3" r="1.1" fill="white"/>
+          <circle cx="5.5" cy="10.4" r="0.5" fill="#1a1a1a"/>
+          <circle cx="7.5" cy="10.4" r="0.5" fill="#1a1a1a"/>
+          {/* 开心大笑 - U形嘴 */}
+          <path d="M4.8 12.2Q6.5 13.8 8.2 12.2" stroke="#1a1a1a" strokeWidth="0.8" strokeLinecap="round" fill="none"/>
         </g>
 
         {/* 右下幽灵 - 青色 吓傻了 */}

@@ -36,7 +36,13 @@
       "Bash(docker rm:*)",
       "Bash(timeout 10 npm run dev:server:*)",
       "Bash(zip:*)",
-      "Bash(npm audit:*)"
+      "Bash(npm audit:*)",
+      "Bash(timeout 5 npm run dev:server:*)",
+      "WebFetch(domain:js.langchain.com)",
+      "WebFetch(domain:docs.langchain.com)",
+      "Bash(time curl -s http://localhost:3001/api/credits/plans)",
+      "Bash(timeout 15 npm run dev:*)",
+      "Bash(echo:*)"
     ],
     "deny": [],
     "ask": []

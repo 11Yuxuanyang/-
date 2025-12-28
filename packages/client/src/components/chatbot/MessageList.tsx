@@ -45,7 +45,7 @@ export const MessageList: React.FC<MessageListProps> = ({ messages, onQuickPromp
 
   if (messages.length === 0) {
     return (
-      <div className="flex-1 flex flex-col px-6 py-8 overflow-y-auto">
+      <div className="flex-1 flex flex-col px-6 py-8 overflow-y-auto overflow-x-hidden">
         {/* Welcome Section */}
         <div className="mb-8">
           <h1 className="text-2xl font-semibold mb-2 text-violet-600">
@@ -83,7 +83,7 @@ export const MessageList: React.FC<MessageListProps> = ({ messages, onQuickPromp
   }
 
   return (
-    <div ref={containerRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+    <div ref={containerRef} className="flex-1 overflow-y-auto overflow-x-hidden px-5 py-4 space-y-4">
       {messages.map((message) => (
         <MessageItem key={message.id} message={message} />
       ))}

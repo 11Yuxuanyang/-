@@ -268,34 +268,33 @@ export const ChatbotPanel: React.FC<ChatbotPanelProps> = ({
     setIsLoading(true);
 
     try {
-      // 构建消息历史
-      const messageHistory: ChatMessageInput[] = [
-        ...messages.map((m) => ({
-          role: m.role,
-          content: m.content,
-          attachments: m.attachments?.map((a) => ({
-            name: a.name,
-            type: a.type,
-            content: a.content,
-          })),
-        })),
-        {
-          role: 'user' as const,
-          content,
-          attachments: attachments.map((a) => ({
-            name: a.name,
-            type: a.type,
-            content: a.content,
-          })),
-        },
-      ];
+      // 使用 LangGraph 模式：只发送当前消息 + threadId
+      // 服务端会自动管理对话历史
+      const threadId = currentSessionId || userMessage.id; // 新对话使用消息 ID 作为会话 ID
+
+      // 如果是新对话，设置当前会话 ID
+      if (!currentSessionId) {
+        setCurrentSessionId(threadId);
+        localStorage.setItem(CURRENT_SESSION_KEY, threadId);
+      }
+
+      // 转换附件格式用于 API
+      const apiAttachments = attachments.length > 0
+        ? attachments.map(att => ({
+            name: att.name,
+            type: att.type,
+            content: att.content,
+          }))
+        : undefined;
 
       // 流式获取响应
       let fullContent = '';
       for await (const chunk of chatStream({
-        messages: messageHistory,
+        message: content,
+        threadId,
         webSearchEnabled,
         canvasContext,
+        attachments: apiAttachments,
       })) {
         fullContent += chunk;
         setMessages((prev) =>
@@ -328,7 +327,7 @@ export const ChatbotPanel: React.FC<ChatbotPanelProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [messages, webSearchEnabled, isLoading, canvasContext]);
+  }, [currentSessionId, webSearchEnabled, isLoading, canvasContext]);
 
   const handleQuickPrompt = (prompt: string) => {
     handleSend(prompt, []);

@@ -89,6 +89,28 @@ export const config = {
     secret: process.env.JWT_SECRET || 'your-jwt-secret-change-in-production',
     expiresIn: '7d',
   },
+
+  // LangGraph 配置
+  langGraph: {
+    // PostgreSQL 连接字符串（用于会话持久化）
+    postgresUri: process.env.LANGGRAPH_POSTGRES_URI || process.env.POSTGRES_URI || '',
+    // 消息历史上限（超出自动裁剪）
+    maxMessages: parseInt(process.env.LANGGRAPH_MAX_MESSAGES || '20', 10),
+    // 是否启用 LangGraph（默认启用，设为 false 降级到旧模式）
+    enabled: process.env.LANGGRAPH_ENABLED !== 'false',
+  },
+
+  // 联网搜索配置
+  webSearch: {
+    // Tavily API（可选，专为 AI 优化，1000次/月免费）
+    tavilyApiKey: process.env.TAVILY_API_KEY || '',
+    // SearXNG 自建搜索引擎 URL（可选）
+    searxngUrl: process.env.SEARXNG_URL || '',
+    // 默认搜索提供商：tavily | duckduckgo | searxng
+    defaultProvider: process.env.WEB_SEARCH_PROVIDER || 'duckduckgo',
+    // 最大搜索结果数
+    maxResults: parseInt(process.env.WEB_SEARCH_MAX_RESULTS || '5', 10),
+  },
 };
 
 /**

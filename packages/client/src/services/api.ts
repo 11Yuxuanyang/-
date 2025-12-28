@@ -232,8 +232,27 @@ export interface CanvasContext {
   selectedIds: string[];
 }
 
+/**
+ * 聊天参数
+ *
+ * 支持两种模式：
+ * 1. LangGraph 模式：{ message, threadId } - 服务端维护历史
+ * 2. 传统模式：{ messages } - 客户端维护历史
+ */
 export interface ChatParams {
-  messages: ChatMessageInput[];
+  // LangGraph 模式参数
+  message?: string;
+  threadId?: string;
+  attachments?: Array<{  // 文档附件（用于 RAG）
+    name?: string;
+    type: string;
+    content: string;
+  }>;
+
+  // 传统模式参数
+  messages?: ChatMessageInput[];
+
+  // 通用参数
   webSearchEnabled?: boolean;
   canvasContext?: CanvasContext;
 }
@@ -336,4 +355,242 @@ export function createChatRequest(params: ChatParams, onChunk?: (chunk: string) 
     generator: chatStream(params, { signal: controller.signal, onChunk }),
     cancel: () => controller.abort(),
   };
+}
+
+// ============ Credits API ============
+
+export interface CreditBalance {
+  balance: number;
+  totalEarned: number;
+  totalSpent: number;
+  membership: {
+    planId: string;
+    planName: string;
+    status: string;
+    expiresAt: string;
+  } | null;
+  hasSignedInToday: boolean;
+}
+
+export interface CreditTransaction {
+  id: string;
+  type: 'purchase' | 'consume' | 'daily_signin' | 'register_bonus' | 'refund' | 'monthly_grant';
+  amount: number;
+  balanceAfter: number;
+  description: string;
+  createdAt: string;
+}
+
+export interface MembershipPlan {
+  id: string;
+  name: string;
+  monthlyCredits: number;
+  priceMonthly: number;           // 单月价（分）
+  priceMonthlyContinuous: number; // 连续包月价（分）
+  priceYearly: number;            // 年付价（分）
+  originalPriceMonthly?: number;  // 单月原价（分）
+  originalPriceYearly?: number;   // 年付原价（分）
+  dailySigninBonus: number;
+  features: string[];
+}
+
+export interface CreditRules {
+  generate: {
+    '720p': number;
+    '1K': number;
+    '2K': number;
+    '4K': number;
+  };
+  edit: number;
+  inpaint: number;
+  upscale: {
+    '2K': number;
+    '4K': number;
+  };
+}
+
+/**
+ * 获取用户积分余额
+ */
+export async function getCreditsBalance(): Promise<CreditBalance> {
+  return request('/credits/balance', {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem('token')}`,
+    },
+  });
+}
+
+/**
+ * 获取积分交易记录
+ */
+export async function getCreditsTransactions(limit = 20, offset = 0): Promise<{
+  transactions: CreditTransaction[];
+  pagination: { limit: number; offset: number };
+}> {
+  return request(`/credits/transactions?limit=${limit}&offset=${offset}`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem('token')}`,
+    },
+  });
+}
+
+/**
+ * 获取会员套餐列表
+ */
+export async function getMembershipPlans(): Promise<{
+  plans: MembershipPlan[];
+  freeUserDailySignin: number;
+}> {
+  return request('/credits/plans', { method: 'GET' });
+}
+
+/**
+ * 预估操作消耗积分
+ */
+export async function estimateCreditCost(params: {
+  action: 'generate' | 'edit' | 'inpaint' | 'upscale';
+  resolution?: '720p' | '1K' | '2K' | '4K';
+}): Promise<{ action: string; resolution: string; cost: number }> {
+  return request('/credits/estimate', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+}
+
+/**
+ * 每日签到
+ */
+export async function dailySignin(): Promise<{
+  credits: number;
+  message: string;
+  newBalance: number;
+}> {
+  return request('/credits/signin', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem('token')}`,
+    },
+  });
+}
+
+/**
+ * 获取积分消耗规则
+ */
+export async function getCreditRules(): Promise<{
+  rules: CreditRules;
+  freeUserDailySignin: number;
+  memberDailySignin: number;
+  registerBonus: number;
+}> {
+  return request('/credits/rules', { method: 'GET' });
+}
+
+/**
+ * 获取用户会员信息
+ */
+export async function getMembershipStatus(): Promise<{
+  membership: {
+    planId: string;
+    planName: string;
+    status: string;
+    billingCycle: string;
+    expiresAt: string;
+    autoRenew: boolean;
+  } | null;
+  isMember: boolean;
+}> {
+  return request('/credits/membership', {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem('token')}`,
+    },
+  });
+}
+
+// ============ 订单 API ============
+
+export interface Order {
+  orderId: string;
+  orderNo: string;
+  amount: number;
+  amountYuan: string;
+  planName: string;
+  status?: string;
+  paymentUrl?: string | null;
+  message?: string;
+}
+
+/**
+ * 创建支付订单
+ */
+export async function createOrder(params: {
+  planId: 'standard' | 'advanced' | 'super';
+  billingCycle?: 'monthly' | 'monthly_continuous' | 'yearly';
+}): Promise<Order> {
+  return request('/credits/orders', {
+    method: 'POST',
+    body: JSON.stringify(params),
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem('token')}`,
+    },
+  });
+}
+
+/**
+ * 获取订单详情
+ */
+export async function getOrder(orderNo: string): Promise<Order> {
+  return request(`/credits/orders/${orderNo}`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem('token')}`,
+    },
+  });
+}
+
+/**
+ * 获取用户订单列表
+ */
+export async function getUserOrders(limit = 10): Promise<{
+  orders: Array<{
+    id: string;
+    orderNo: string;
+    planName: string;
+    amount: number;
+    amountYuan: string;
+    status: string;
+    createdAt: string;
+  }>;
+}> {
+  return request(`/credits/orders?limit=${limit}`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem('token')}`,
+    },
+  });
+}
+
+/**
+ * 模拟支付完成（开发测试用）
+ */
+export async function simulatePayment(orderNo: string, paymentMethod = 'wechat'): Promise<{
+  message: string;
+  creditsGranted: number;
+  membership: {
+    planId: string;
+    planName: string;
+    status: string;
+    expiresAt: string;
+  };
+  newBalance: number;
+}> {
+  return request(`/credits/orders/${orderNo}/pay`, {
+    method: 'POST',
+    body: JSON.stringify({ paymentMethod }),
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem('token')}`,
+    },
+  });
 }
