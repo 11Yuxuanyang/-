@@ -42,7 +42,9 @@
       "WebFetch(domain:docs.langchain.com)",
       "Bash(time curl -s http://localhost:3001/api/credits/plans)",
       "Bash(timeout 15 npm run dev:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(git fetch:*)",
+      "Bash(git pull:*)"
     ],
     "deny": [],
     "ask": []

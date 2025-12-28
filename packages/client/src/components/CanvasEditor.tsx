@@ -2905,10 +2905,20 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
                     className="absolute bottom-0 left-1/2"
                     style={{ transform: `translateX(-50%) translateY(100%) scale(${1 / scale})`, transformOrigin: 'top center' }}
                   >
-                    <div className="mt-2 px-3 py-2 bg-white/95 backdrop-blur-sm rounded-lg shadow-lg border border-gray-200/80 max-w-xs">
-                      <p className="text-xs text-gray-500 truncate" title={item.prompt}>
+                    <div className="mt-2 px-3 py-2 bg-white/95 backdrop-blur-sm rounded-lg shadow-lg border border-gray-200/80 max-w-xs flex items-center gap-2">
+                      <p className="text-xs text-gray-500 truncate flex-1" title={item.prompt}>
                         {item.prompt}
                       </p>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigator.clipboard.writeText(item.prompt || '');
+                        }}
+                        className="p-1 hover:bg-gray-100 rounded transition-colors flex-shrink-0"
+                        title="复制提示词"
+                      >
+                        <Copy size={12} className="text-gray-400 hover:text-gray-600" />
+                      </button>
                     </div>
                   </div>
                 )}

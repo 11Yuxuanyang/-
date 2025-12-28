@@ -33,7 +33,7 @@ export function CreditDisplay({ onBalanceChange }: CreditDisplayProps) {
   }, [onBalanceChange]);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('auth_token');
     if (token) {
       fetchBalance();
     } else {
@@ -53,7 +53,7 @@ export function CreditDisplay({ onBalanceChange }: CreditDisplayProps) {
   };
 
   // 未登录状态 - 显示默认按钮
-  if (!localStorage.getItem('token')) {
+  if (!localStorage.getItem('auth_token')) {
     return (
       <>
         <button
