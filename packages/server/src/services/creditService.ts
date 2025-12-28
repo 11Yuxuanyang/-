@@ -479,7 +479,7 @@ class CreditService {
         originalPriceMonthly: 5900,
         originalPriceYearly: 70800,
         dailySigninBonus: 100,
-        features: ['每月获得4000傻币', '~4000张生成图片', '登录每日领100傻币', '生图加速', '会员模型生图，商用无忧', '多格式导出(SVG、OBJ等)'],
+        features: ['每月获得4000傻币', '~4000张生成图片', '每日免费20傻币', '生图加速', '会员模型生图，商用无忧', '多格式导出(SVG、OBJ等)'],
       },
       {
         id: 'advanced',
@@ -491,7 +491,7 @@ class CreditService {
         originalPriceMonthly: 11900,
         originalPriceYearly: 142800,
         dailySigninBonus: 100,
-        features: ['每月获得12000傻币', '~12000张生成图片', '登录每日领100傻币', '生图优先加速', '会员模型生图，商用无忧', '多格式导出(SVG、OBJ等)'],
+        features: ['每月获得12000傻币', '~12000张生成图片', '每日免费20傻币', '生图优先加速', '会员模型生图，商用无忧', '多格式导出(SVG、OBJ等)'],
       },
       {
         id: 'super',
@@ -503,7 +503,7 @@ class CreditService {
         originalPriceMonthly: 23900,
         originalPriceYearly: 286800,
         dailySigninBonus: 100,
-        features: ['每月获得24500傻币', '~24500张生成图片', '登录每日领100傻币', '生图最高优先级', '会员模型生图，商用无忧', '多格式导出(SVG、OBJ等)'],
+        features: ['每月获得24500傻币', '~24500张生成图片', '每日免费20傻币', '生图最高优先级', '会员模型生图，商用无忧', '多格式导出(SVG、OBJ等)'],
       },
     ];
   }
