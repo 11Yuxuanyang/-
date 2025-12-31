@@ -1,8 +1,19 @@
-import { Project } from '../types';
+import { Project, CanvasItem } from '../types';
 import { generateId } from '../utils/id';
 import { isLoggedIn, getAuthHeaders } from './auth';
 
 const STORAGE_KEY = 'canvasai_projects';
+
+// 云端项目格式
+interface CloudProject {
+  id: string;
+  name: string;
+  items?: CanvasItem[];
+  thumbnail?: string;
+  created_at: string;
+  updated_at: string;
+  viewport?: { scale: number; pan: { x: number; y: number } };
+}
 
 // ============ 本地存储函数（未登录用户） ============
 
@@ -30,7 +41,7 @@ async function fetchCloudProjects(): Promise<Project[]> {
     const data = await response.json();
     if (data.success && data.data?.projects) {
       // 转换云端格式为前端格式
-      return data.data.projects.map((p: any) => ({
+      return data.data.projects.map((p: CloudProject) => ({
         id: p.id,
         name: p.name,
         items: p.items || [],

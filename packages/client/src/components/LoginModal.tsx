@@ -78,7 +78,7 @@ export function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps)
         setPhoneError(data.error || '发送失败，请重试');
         setStatus('error');
       }
-    } catch (_e) {
+    } catch {
       setPhoneError('网络错误，请重试');
       setStatus('error');
     }
@@ -123,7 +123,7 @@ export function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps)
         setPhoneError(data.error || '验证失败');
         setStatus('error');
       }
-    } catch (_e) {
+    } catch {
       setPhoneError('网络错误，请重试');
       setStatus('error');
     }
@@ -155,7 +155,7 @@ export function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginModalProps)
         setError(data.error || '获取二维码失败');
         setStatus('error');
       }
-    } catch (_e) {
+    } catch {
       setError('网络错误，请重试');
       setStatus('error');
     }

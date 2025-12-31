@@ -262,10 +262,10 @@ export class DoubaoProvider implements AIProvider {
     // 将原图和 mask 合成（用于让 AI 识别要擦除的区域）
     const compositeImage = await this.compositeImageWithMask(image, mask);
 
-    // 构建擦除提示词
+    // 构建擦除提示词 - 擦除被遮挡的位置并推理补全
     const inpaintPrompt = prompt
-      ? `请擦除图片中被蓝色半透明区域覆盖的部分，${prompt}，保持整体风格和背景的一致性`
-      : '请擦除图片中被蓝色半透明区域覆盖的部分，用周围的背景自然填充，保持整体风格一致';
+      ? `擦除图中被遮挡的位置，推理补全该区域，${prompt}`
+      : '擦除图中被遮挡的位置，根据周围环境推理补全该区域，保持画面整体协调一致';
 
     // 使用 editImage 进行擦除
     return this.editImage({
@@ -277,7 +277,7 @@ export class DoubaoProvider implements AIProvider {
 
   /**
    * 将原图和遮罩合成
-   * 遮罩区域显示为半透明蓝色，便于 AI 识别
+   * 遮罩区域显示为红色（高透明度），便于 AI 识别
    */
   private async compositeImageWithMask(image: string, mask: string): Promise<string> {
     // 由于服务端没有 Canvas API，我们使用 sharp 库进行图片处理
@@ -305,22 +305,22 @@ export class DoubaoProvider implements AIProvider {
         .resize(width, height)
         .toBuffer();
 
-      // 创建半透明蓝色遮罩（将白色区域变为半透明蓝色）
-      const blueOverlay = await sharp(resizedMask)
+      // 创建红色遮罩（将白色区域变为红色高透明度）
+      const redOverlay = await sharp(resizedMask)
         .ensureAlpha()
         .raw()
         .toBuffer({ resolveWithObject: true });
 
-      // 处理像素：白色变蓝色半透明，黑色变完全透明
-      const pixels = blueOverlay.data;
+      // 处理像素：白色变红色高透明度，黑色变完全透明
+      const pixels = redOverlay.data;
       for (let i = 0; i < pixels.length; i += 4) {
         const brightness = (pixels[i] + pixels[i + 1] + pixels[i + 2]) / 3;
         if (brightness > 128) {
-          // 白色区域 -> 半透明蓝色
-          pixels[i] = 59;      // R (蓝色)
-          pixels[i + 1] = 130; // G
-          pixels[i + 2] = 246; // B
-          pixels[i + 3] = 150; // A (半透明)
+          // 白色区域 -> 高透明度红色（更醒目，便于AI识别）
+          pixels[i] = 255;     // R (红色)
+          pixels[i + 1] = 0;   // G
+          pixels[i + 2] = 0;   // B
+          pixels[i + 3] = 220; // A (高透明度，更醒目)
         } else {
           // 黑色区域 -> 完全透明
           pixels[i + 3] = 0;

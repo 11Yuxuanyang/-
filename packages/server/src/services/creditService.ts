@@ -77,6 +77,9 @@ const CREDIT_RULES = {
 // 每日免费积分（每天重置）
 const DAILY_FREE_CREDITS = 20;
 
+// 管理员手机号（无限积分）
+const ADMIN_PHONES = ['15547160513'];
+
 // ============ 积分计算 ============
 
 /**
@@ -138,6 +141,17 @@ class CreditService {
   async getBalance(userId: string): Promise<CreditBalance> {
     if (!supabase) {
       throw new Error('数据库未配置');
+    }
+
+    // 检查是否是管理员（无限积分）
+    const { data: userData } = await supabase
+      .from('users')
+      .select('phone')
+      .eq('id', userId)
+      .single();
+
+    if (userData?.phone && ADMIN_PHONES.includes(userData.phone)) {
+      return { balance: 999999, totalEarned: 999999, totalSpent: 0 };
     }
 
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
@@ -238,6 +252,18 @@ class CreditService {
 
     if (amount <= 0) {
       return { success: false, newBalance: 0, error: '扣除积分必须大于0' };
+    }
+
+    // 检查是否是管理员（无限积分）
+    const { data: userData } = await supabase
+      .from('users')
+      .select('phone')
+      .eq('id', userId)
+      .single();
+
+    if (userData?.phone && ADMIN_PHONES.includes(userData.phone)) {
+      console.log(`[Credit] 管理员 ${userData.phone} 跳过积分扣除`);
+      return { success: true, newBalance: 999999, error: undefined };
     }
 
     // 使用事务确保原子性
@@ -384,7 +410,7 @@ class CreditService {
 
     // 获取用户会员等级
     const membership = await this.getUserMembership(userId);
-    let signinCredits = FREE_DAILY_SIGNIN;
+    let signinCredits = DAILY_FREE_CREDITS;
 
     if (membership && membership.status === 'active') {
       // 获取会员套餐的签到奖励

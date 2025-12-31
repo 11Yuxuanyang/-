@@ -261,6 +261,7 @@ export async function chat(request: LangGraphChatRequest): Promise<string> {
 
 /**
  * 发送消息并流式获取回复
+ * 最后 yield 一个 [[USAGE]] 标记包含 token 使用量
  */
 export async function* chatStream(request: LangGraphChatRequest): AsyncGenerator<string> {
   const graph = await getCompiledGraph();
@@ -298,6 +299,11 @@ export async function* chatStream(request: LangGraphChatRequest): AsyncGenerator
     }
   );
 
+  let totalPromptTokens = 0;
+  let totalCompletionTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheWriteTokens = 0;
+
   for await (const event of stream) {
     // 监听 chat model 的流式输出
     if (event.event === 'on_chat_model_stream') {
@@ -309,6 +315,44 @@ export async function* chatStream(request: LangGraphChatRequest): AsyncGenerator
         }
       }
     }
+
+    // 监听 chat model 结束事件获取 usage（包含缓存信息）
+    if (event.event === 'on_chat_model_end') {
+      const output = event.data?.output;
+
+      if (output?.usage_metadata) {
+        totalPromptTokens = output.usage_metadata.input_tokens || 0;
+        totalCompletionTokens = output.usage_metadata.output_tokens || 0;
+        // 获取缓存命中信息（LangChain 格式）
+        if (output.usage_metadata.input_token_details) {
+          cacheReadTokens = output.usage_metadata.input_token_details.cache_read || 0;
+          cacheWriteTokens = output.usage_metadata.input_token_details.cache_creation || 0;
+        }
+      }
+
+      // 从 response_metadata 获取更详细的缓存信息
+      if (output?.response_metadata?.usage) {
+        const usage = output.response_metadata.usage;
+        if (!totalPromptTokens) totalPromptTokens = usage.prompt_tokens || 0;
+        if (!totalCompletionTokens) totalCompletionTokens = usage.completion_tokens || 0;
+        // OpenRouter/MiniMax 格式
+        if (usage.cache_read_input_tokens) cacheReadTokens = usage.cache_read_input_tokens;
+        if (usage.cache_creation_input_tokens) cacheWriteTokens = usage.cache_creation_input_tokens;
+        // OpenAI 格式
+        if (usage.prompt_tokens_details?.cached_tokens) cacheReadTokens = usage.prompt_tokens_details.cached_tokens;
+      }
+    }
+  }
+
+  // yield usage 信息（包含缓存命中）
+  if (totalPromptTokens > 0 || totalCompletionTokens > 0) {
+    console.log(`[LangGraph] 流式完成, tokens: prompt=${totalPromptTokens}, completion=${totalCompletionTokens}, cache_read=${cacheReadTokens}, cache_write=${cacheWriteTokens}`);
+    yield `[[USAGE]]${JSON.stringify({
+      promptTokens: totalPromptTokens,
+      completionTokens: totalCompletionTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
+    })}`;
   }
 }
 

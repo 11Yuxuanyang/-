@@ -11,14 +11,14 @@ export interface GenerateImageParams {
   aspectRatio?: string;
   size?: string;        // 尺寸: '1K' | '2K' | '4K'
   watermark?: boolean;  // 是否添加水印
-  options?: Record<string, any>;
+  options?: Record<string, unknown>;
 }
 
 export interface EditImageParams {
   image: string | string[];  // 支持单张或多张参考图 (base64 或 URL)
   prompt: string;
   model?: string;
-  options?: Record<string, any>;
+  options?: Record<string, unknown>;
 }
 
 export interface InpaintImageParams {
@@ -26,13 +26,13 @@ export interface InpaintImageParams {
   mask: string;    // 遮罩图片 (base64)，白色区域表示要擦除/编辑的区域
   prompt?: string; // 可选的提示词，描述用什么填充擦除区域（不填则智能填充）
   model?: string;
-  options?: Record<string, any>;
+  options?: Record<string, unknown>;
 }
 
 export interface UpscaleImageParams {
   image: string;  // base64
   resolution?: '2K' | '4K';
-  options?: Record<string, any>;
+  options?: Record<string, unknown>;
 }
 
 export interface AIProvider {
@@ -68,7 +68,7 @@ export interface AIProvider {
 /**
  * AI 提供商响应格式
  */
-export interface AIResponse<T = any> {
+export interface AIResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;

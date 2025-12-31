@@ -1,8 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import html2canvas from 'html2canvas';
 import {
-  MousePointer2,
-  Type,
   Plus,
   ImagePlus,
   Camera,
@@ -10,16 +7,10 @@ import {
   ZoomIn,
   ZoomOut,
   X,
-  Pencil,
-  Square,
-  Circle,
-  Shapes,
-  MoveRight,
-  Minus,
   Loader2,
-  Sparkles,
-  Wand2,
   ArrowRight,
+  Users,
+  Copy,
 } from 'lucide-react';
 import { CanvasOnboarding } from './CanvasOnboarding';
 import { FloatingToolbar } from './FloatingToolbar';
@@ -29,11 +20,10 @@ import * as API from '../services/api';
 import * as ProjectService from '../services/projectService';
 import { ChatbotPanel } from './chatbot';
 import { generateId } from '../utils/id';
-import { Tooltip } from './ui';
 import { Logo } from './Logo';
 import { CreditDisplay } from './credits';
-import { Users, ChevronDown, ChevronUp, Layers, Eye, EyeOff, Trash2, ArrowUp, ArrowDown } from 'lucide-react';
 import { useCollaboration, useCropping, useMaskEditing, useClipboard } from '../hooks';
+import { CanvasToolbar, CanvasLayers } from './Canvas';
 import {
   DEFAULT_IMAGE_SIZE,
   MIN_SCALE,
@@ -79,6 +69,11 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
     position: { x: number; y: number; width: number; height: number };
     sourceIds: string[];
   }>>([]);
+  // 用 ref 保持最新的任务列表，供异步回调访问
+  const generatingTasksRef = useRef(generatingTasks);
+  useEffect(() => {
+    generatingTasksRef.current = generatingTasks;
+  }, [generatingTasks]);
 
   // Dragging State
   const [isDragging, setIsDragging] = useState(false);
@@ -91,7 +86,15 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
   const [isResizing, setIsResizing] = useState(false);
   const [resizeCorner, setResizeCorner] = useState<string | null>(null);
   const [resizeStart, setResizeStart] = useState({ x: 0, y: 0 });
-  const [itemStartSize, setItemStartSize] = useState({ width: 0, height: 0, x: 0, y: 0 });
+  const [itemStartSize, setItemStartSize] = useState<{
+    width: number;
+    height: number;
+    x: number;
+    y: number;
+    points?: Array<{ x: number; y: number }>;
+    startPoint?: { x: number; y: number };
+    endPoint?: { x: number; y: number };
+  }>({ width: 0, height: 0, x: 0, y: 0 });
   // 多选缩放时保存边界框和所有元素的初始状态
   const [multiResizeData, setMultiResizeData] = useState<{
     boundingBox: { x: number; y: number; width: number; height: number };
@@ -110,18 +113,9 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
   const [selectionEnd, setSelectionEnd] = useState({ x: 0, y: 0 });
 
   // 各工具的颜色
-  const colorPalette = ['#000000', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6'];
   const [toolColors, setToolColors] = useState({
     brush: '#000000', line: '#000000', arrow: '#000000', rectangle: '#000000', circle: '#000000',
   });
-  const getToolColor = (mode: ToolMode) => {
-    if (mode === ToolMode.BRUSH) return toolColors.brush;
-    if (mode === ToolMode.LINE) return toolColors.line;
-    if (mode === ToolMode.ARROW) return toolColors.arrow;
-    if (mode === ToolMode.RECTANGLE) return toolColors.rectangle;
-    if (mode === ToolMode.CIRCLE) return toolColors.circle;
-    return '#000000';
-  };
   const setToolColor = (mode: ToolMode, color: string) => {
     if (mode === ToolMode.BRUSH) setToolColors(p => ({ ...p, brush: color }));
     else if (mode === ToolMode.LINE) setToolColors(p => ({ ...p, line: color }));
@@ -154,23 +148,11 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
     cancelCrop: _cancelCrop,
   } = useCropping({ items, setItems });
 
-  // 创作工具菜单状态
-  const [showCreativeTools, setShowCreativeTools] = useState(false);
-
   // 社群弹窗状态
   const [showCommunityQR, setShowCommunityQR] = useState(false);
 
-  // 图层面板状态
-  const [showLayers, setShowLayers] = useState(false);
-
   // Chatbot 状态
   const [isChatOpen, setIsChatOpen] = useState(false);
-
-  // AI 融合状态
-  const [showFusionPanel, setShowFusionPanel] = useState(false);
-  const [fusionPrompt, setFusionPrompt] = useState('');
-  const [_isFusing, setIsFusing] = useState(false);
-  const [fusionReferenceImage, setFusionReferenceImage] = useState<string | null>(null);
 
   // 图片擦除/重绘（使用 hook）
   const {
@@ -237,7 +219,7 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
   }, []);
 
   // 剪贴板功能（使用 hook）
-  const { clipboard, copy, cut, paste, duplicate } = useClipboard({
+  const { clipboard, copy, cut, paste, duplicate, clearClipboard } = useClipboard({
     items,
     setItems,
     selectedIds,
@@ -477,10 +459,8 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
         const { projectId, prompt: pendingPromptText } = JSON.parse(pendingData);
         if (projectId === project.id && pendingPromptText) {
           localStorage.removeItem('pendingPrompt');
-          // 设置 prompt
-          setPrompt(pendingPromptText);
 
-          // 延迟一帧后触发生成，确保状态已更新
+          // 延迟一帧后触发生成
           setTimeout(async () => {
             // 计算 loading 占位区域位置（画布中心）
             const displaySize = DEFAULT_IMAGE_SIZE;
@@ -501,27 +481,26 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
               const img = new window.Image();
               img.src = newImageSrc;
               img.onload = () => {
-                setGeneratingTasks(prev => {
-                  const task = prev.find(t => t.id === taskId);
-                  const finalX = task?.position.x ?? loadingX;
-                  const finalY = task?.position.y ?? loadingY;
+                // 从 ref 获取最新的任务位置
+                const task = generatingTasksRef.current.find(t => t.id === taskId);
+                const finalX = task?.position.x ?? loadingX;
+                const finalY = task?.position.y ?? loadingY;
 
-                  const newItem: CanvasItem = {
-                    id: generateId(),
-                    type: 'image',
-                    src: newImageSrc,
-                    x: finalX,
-                    y: finalY,
-                    width: displaySize,
-                    height: displaySize,
-                    zIndex: items.length + 1,
-                    prompt: pendingPromptText
-                  };
-                  setItems(prevItems => [...prevItems, newItem]);
-                  setSelectedIds([newItem.id]);
-                  setPrompt('');
-                  return prev.filter(t => t.id !== taskId);
-                });
+                const newItem: CanvasItem = {
+                  id: generateId(),
+                  type: 'image',
+                  src: newImageSrc,
+                  x: finalX,
+                  y: finalY,
+                  width: displaySize,
+                  height: displaySize,
+                  zIndex: 999,
+                  prompt: pendingPromptText
+                };
+                // 分开调用 setState，避免嵌套
+                setItems(prevItems => [...prevItems, newItem]);
+                setSelectedIds([newItem.id]);
+                setGeneratingTasks(prev => prev.filter(t => t.id !== taskId));
               };
             } catch (error) {
               console.error('Auto-generate failed:', error);
@@ -593,9 +572,47 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
       }
 
       // Ctrl/Cmd + V 粘贴到鼠标位置
-      if (isMod && e.key === 'v' && clipboard.length > 0) {
+      if (isMod && e.key === 'v') {
         e.preventDefault();
-        paste();
+        // 先尝试从系统剪贴板读取文本
+        navigator.clipboard.readText().then(text => {
+          if (text && text.trim()) {
+            // 如果有文本，创建文字元素
+            const mousePos = mousePositionRef.current;
+            const trimmedText = text.trim();
+            const { width, height } = measureTextSize(
+              trimmedText,
+              24,
+              '"Xiaolai SC", "Virgil", cursive',
+              'normal'
+            );
+            const newTextItem: CanvasItem = {
+              id: generateId(),
+              type: 'text',
+              src: trimmedText, // 文字内容存在 src 中
+              x: mousePos.x - width / 2,
+              y: mousePos.y - height / 2,
+              width,
+              height,
+              zIndex: items.length + 1,
+              fontSize: 24,
+              fontFamily: '"Xiaolai SC", "Virgil", cursive',
+              fontWeight: 'normal',
+              color: '#1f2937',
+              textAlign: 'left',
+            };
+            setItems(prev => [...prev, newTextItem]);
+            setSelectedIds([newTextItem.id]);
+          } else if (clipboard.length > 0) {
+            // 如果系统剪贴板没有文本，使用内部剪贴板
+            paste();
+          }
+        }).catch(() => {
+          // 如果读取系统剪贴板失败，使用内部剪贴板
+          if (clipboard.length > 0) {
+            paste();
+          }
+        });
       }
 
       // Ctrl/Cmd + D 快速复制（原地偏移复制）
@@ -849,48 +866,46 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
       const img = new window.Image();
       img.src = newImageSrc;
       img.onload = () => {
-        // 获取最新的任务位置（用户可能拖动了）
-        setGeneratingTasks(prev => {
-          const task = prev.find(t => t.id === taskId);
-          const finalX = task?.position.x ?? loadingX;
-          const finalY = task?.position.y ?? loadingY;
+        // 从 ref 获取最新的任务位置
+        const task = generatingTasksRef.current.find(t => t.id === taskId);
+        const finalX = task?.position.x ?? loadingX;
+        const finalY = task?.position.y ?? loadingY;
 
-          // 使用图片的实际尺寸，缩小50%面积（宽高各乘0.707）
-          const SCALE_FACTOR = 0.707; // √0.5 ≈ 0.707
-          const actualWidth = Math.round(img.naturalWidth * SCALE_FACTOR);
-          const actualHeight = Math.round(img.naturalHeight * SCALE_FACTOR);
+        // 使用图片的实际尺寸，缩小50%面积（宽高各乘0.707）
+        const SCALE_FACTOR = 0.707; // √0.5 ≈ 0.707
+        const actualWidth = Math.round(img.naturalWidth * SCALE_FACTOR);
+        const actualHeight = Math.round(img.naturalHeight * SCALE_FACTOR);
 
-          const newItem: CanvasItem = {
-            id: generateId(),
-            type: 'image',
-            src: newImageSrc,
-            x: finalX,
-            y: finalY,
-            width: actualWidth,
-            height: actualHeight,
-            zIndex: items.length + 1,
-            prompt: currentPrompt
-          };
+        const newItem: CanvasItem = {
+          id: generateId(),
+          type: 'image',
+          src: newImageSrc,
+          x: finalX,
+          y: finalY,
+          width: actualWidth,
+          height: actualHeight,
+          zIndex: 999,
+          prompt: currentPrompt
+        };
 
-          // 如果有参考图片，创建溯源连接线
-          const connectionLines: CanvasItem[] = [];
-          if (selectedImages.length > 0) {
-            // 多图时计算统一终点
-            const fixedEnd = selectedImages.length > 1
-              ? calcUnifiedEndPoint(selectedImages, newItem)
-              : undefined;
-            selectedImages.forEach(sourceImage => {
-              const connection = createConnectionCurve(sourceImage, newItem, fixedEnd);
-              connectionLines.push(connection);
-            });
-          }
+        // 如果有参考图片，创建溯源连接线
+        const connectionLines: CanvasItem[] = [];
+        if (selectedImages.length > 0) {
+          // 多图时计算统一终点
+          const fixedEnd = selectedImages.length > 1
+            ? calcUnifiedEndPoint(selectedImages, newItem)
+            : undefined;
+          selectedImages.forEach(sourceImage => {
+            const connection = createConnectionCurve(sourceImage, newItem, fixedEnd);
+            connectionLines.push(connection);
+          });
+        }
 
-          setItems(prevItems => [...prevItems, ...connectionLines, newItem]);
-          setSelectedIds([newItem.id]);
-
-          // 移除完成的任务
-          return prev.filter(t => t.id !== taskId);
-        });
+        // 添加图片和连接线
+        setItems(prevItems => [...prevItems, ...connectionLines, newItem]);
+        setSelectedIds([newItem.id]);
+        // 移除完成的任务
+        setGeneratingTasks(prev => prev.filter(t => t.id !== taskId));
       };
 
     } catch (error) {
@@ -980,130 +995,6 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
       return true;
     }));
     setSelectedIds([]);
-  };
-
-  // AI 融合 - 截取选中区域作为参考图
-  const handleAIFusion = async () => {
-    if (selectedIds.length < 2 || !canvasContentRef.current) return;
-
-    const selectedItems = items.filter(item => selectedIds.includes(item.id));
-    if (selectedItems.length === 0) return;
-
-    // 计算选中区域的边界
-    const minX = Math.min(...selectedItems.map(item => item.x));
-    const minY = Math.min(...selectedItems.map(item => item.y));
-    const maxX = Math.max(...selectedItems.map(item => item.x + item.width));
-    const maxY = Math.max(...selectedItems.map(item => item.y + item.height));
-
-    const padding = 20;
-    const boundingBox = {
-      x: minX - padding,
-      y: minY - padding,
-      width: maxX - minX + padding * 2,
-      height: maxY - minY + padding * 2,
-    };
-
-    try {
-      // 使用 html2canvas 截取画布内容区域
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const canvas = await html2canvas(canvasContentRef.current, {
-        backgroundColor: '#f8f9fa',
-        scale: 2, // 高清截图
-        x: boundingBox.x,
-        y: boundingBox.y,
-        width: boundingBox.width,
-        height: boundingBox.height,
-        useCORS: true,
-        allowTaint: true,
-      } as any);
-
-      const dataUrl = canvas.toDataURL('image/png');
-      setFusionReferenceImage(dataUrl);
-      setShowFusionPanel(true);
-    } catch (error) {
-      console.error('截取画布失败:', error);
-    }
-  };
-
-  // 执行 AI 融合生成
-  const executeAIFusion = async () => {
-    if (!fusionReferenceImage || !fusionPrompt.trim()) return;
-
-    setIsFusing(true);
-    setShowFusionPanel(false);
-
-    // 计算放置位置（在选中区域右侧）
-    const selectedItems = items.filter(item => selectedIds.includes(item.id));
-    const maxX = Math.max(...selectedItems.map(item => item.x + item.width));
-    const minY = Math.min(...selectedItems.map(item => item.y));
-    const _avgHeight = selectedItems.reduce((sum, item) => sum + item.height, 0) / selectedItems.length;
-
-    // 解析宽高比
-    const [w, h] = aspectRatio.split(':').map(Number);
-    const ratio = w / h;
-    const width = ratio >= 1 ? MAX_DISPLAY_SIZE : MAX_DISPLAY_SIZE * ratio;
-    const height = ratio >= 1 ? MAX_DISPLAY_SIZE / ratio : MAX_DISPLAY_SIZE;
-
-    // 设置 loading 位置
-    const loadingPos = {
-      x: maxX + 40,
-      y: minY,
-      width,
-      height,
-    };
-    setLoadingPosition(loadingPos);
-    loadingPositionRef.current = loadingPos;
-
-    try {
-      // 调用 AI 生成 API，传入参考图
-      const newImageSrc = await API.generateImage({
-        prompt: fusionPrompt,
-        aspectRatio,
-        size: resolution,
-        referenceImage: fusionReferenceImage,
-      });
-
-      // 加载图片以获取实际尺寸
-      const img = new window.Image();
-      img.src = newImageSrc;
-      img.onload = () => {
-        const pos = loadingPositionRef.current || loadingPos;
-        const newItem: CanvasItem = {
-          id: generateId(),
-          type: 'image',
-          src: newImageSrc,
-          x: pos.x,
-          y: pos.y,
-          width: Math.round(img.naturalWidth * 0.707),  // 缩小50%面积
-          height: Math.round(img.naturalHeight * 0.707),
-          zIndex: Math.max(...items.map(i => i.zIndex), 0) + 1,
-        };
-
-        // 为所有选中的图片创建溯源连接线
-        const connectionLines: CanvasItem[] = [];
-        const selectedImageItems = selectedItems.filter(item => item.type === 'image');
-        selectedImageItems.forEach(sourceImage => {
-          const connection = createConnectionCurve(sourceImage, newItem);
-          connectionLines.push(connection);
-        });
-
-        setItems(prev => [...prev, ...connectionLines, newItem]);
-        setSelectedIds([newItem.id]);
-
-        // 清理 loading 状态
-        setLoadingPosition(null);
-        loadingPositionRef.current = null;
-      };
-    } catch (error) {
-      console.error('AI 融合失败:', error);
-      // 失败时清理 loading 状态
-      setLoadingPosition(null);
-      loadingPositionRef.current = null;
-    } finally {
-      setIsFusing(false);
-      setFusionReferenceImage(null);
-      setFusionPrompt('');
-    }
   };
 
   // --- Interaction Handlers ---
@@ -1435,6 +1326,36 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
             const newWidth = Math.max(20, itemData.relW * newBBWidth);
             const newHeight = Math.max(20, itemData.relH * newBBHeight);
 
+            // 画笔元素需要同时缩放所有点
+            if (item.type === 'brush' && item.points) {
+              const scaleX = itemData.width > 0 ? newWidth / itemData.width : 1;
+              const scaleY = itemData.height > 0 ? newHeight / itemData.height : 1;
+              const newPoints = item.points.map(p => ({
+                x: newX + (p.x - itemData.x) * scaleX,
+                y: newY + (p.y - itemData.y) * scaleY,
+              }));
+              return { ...item, x: newX, y: newY, width: newWidth, height: newHeight, points: newPoints };
+            }
+
+            // 线段/箭头需要同时缩放起点终点
+            if ((item.type === 'line' || item.type === 'arrow') && item.startPoint && item.endPoint) {
+              const scaleX = itemData.width > 0 ? newWidth / itemData.width : 1;
+              const scaleY = itemData.height > 0 ? newHeight / itemData.height : 1;
+              const newStartPoint = {
+                x: newX + (item.startPoint.x - itemData.x) * scaleX,
+                y: newY + (item.startPoint.y - itemData.y) * scaleY,
+              };
+              const newEndPoint = {
+                x: newX + (item.endPoint.x - itemData.x) * scaleX,
+                y: newY + (item.endPoint.y - itemData.y) * scaleY,
+              };
+              const newControlPoint = item.controlPoint ? {
+                x: newX + (item.controlPoint.x - itemData.x) * scaleX,
+                y: newY + (item.controlPoint.y - itemData.y) * scaleY,
+              } : undefined;
+              return { ...item, x: newX, y: newY, width: newWidth, height: newHeight, startPoint: newStartPoint, endPoint: newEndPoint, controlPoint: newControlPoint };
+            }
+
             return { ...item, x: newX, y: newY, width: newWidth, height: newHeight };
           });
           // 实时更新连接线
@@ -1490,6 +1411,56 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
             }
 
             return { ...item, width: newWidth, height: newHeight, x: newX, y: newY, startPoint: newStartPoint, endPoint: newEndPoint };
+          }
+
+          // 画笔 - 缩放时同时更新所有点
+          if (item.type === 'brush' && itemStartSize.points) {
+            let newWidth = itemStartSize.width;
+            let newHeight = itemStartSize.height;
+            let newX = itemStartSize.x;
+            let newY = itemStartSize.y;
+
+            // 四角等比缩放
+            const ratio = itemStartSize.height > 0 ? itemStartSize.width / itemStartSize.height : 1;
+            if (resizeCorner === 'br') {
+              newWidth = Math.max(20, itemStartSize.width + dx);
+              newHeight = newWidth / ratio;
+            } else if (resizeCorner === 'bl') {
+              newWidth = Math.max(20, itemStartSize.width - dx);
+              newHeight = newWidth / ratio;
+              newX = itemStartSize.x + (itemStartSize.width - newWidth);
+            } else if (resizeCorner === 'tr') {
+              newWidth = Math.max(20, itemStartSize.width + dx);
+              newHeight = newWidth / ratio;
+              newY = itemStartSize.y + (itemStartSize.height - newHeight);
+            } else if (resizeCorner === 'tl') {
+              newWidth = Math.max(20, itemStartSize.width - dx);
+              newHeight = newWidth / ratio;
+              newX = itemStartSize.x + (itemStartSize.width - newWidth);
+              newY = itemStartSize.y + (itemStartSize.height - newHeight);
+            }
+            // 边缘自由缩放
+            else if (resizeCorner === 't') {
+              newHeight = Math.max(20, itemStartSize.height - dy);
+              newY = itemStartSize.y + (itemStartSize.height - newHeight);
+            } else if (resizeCorner === 'b') {
+              newHeight = Math.max(20, itemStartSize.height + dy);
+            } else if (resizeCorner === 'l') {
+              newWidth = Math.max(20, itemStartSize.width - dx);
+              newX = itemStartSize.x + (itemStartSize.width - newWidth);
+            } else if (resizeCorner === 'r') {
+              newWidth = Math.max(20, itemStartSize.width + dx);
+            }
+
+            // 使用保存的原始点来计算缩放，避免累积误差
+            const scaleX = itemStartSize.width > 0 ? newWidth / itemStartSize.width : 1;
+            const scaleY = itemStartSize.height > 0 ? newHeight / itemStartSize.height : 1;
+            const newPoints = itemStartSize.points.map(p => ({
+              x: newX + (p.x - itemStartSize.x) * scaleX,
+              y: newY + (p.y - itemStartSize.y) * scaleY,
+            }));
+
+            return { ...item, width: newWidth, height: newHeight, x: newX, y: newY, points: newPoints };
           }
 
           // 其他形状
@@ -1855,7 +1826,11 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
         width: selectedItem.width,
         height: selectedItem.height,
         x: selectedItem.x,
-        y: selectedItem.y
+        y: selectedItem.y,
+        // 保存画笔原始点和线段端点，用于缩放时计算
+        points: selectedItem.points ? [...selectedItem.points] : undefined,
+        startPoint: selectedItem.startPoint ? { ...selectedItem.startPoint } : undefined,
+        endPoint: selectedItem.endPoint ? { ...selectedItem.endPoint } : undefined,
       });
     }
   };
@@ -2044,197 +2019,24 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
         </div>
       </div>
 
-      {/* --- 图层面板 (固定在右侧，分享按钮下方) --- */}
-      {items.filter(item => item.type === 'image' && item.src).length > 0 && (
-        <div className="fixed top-20 right-4 z-40">
-          <button
-            onClick={() => setShowLayers(!showLayers)}
-            className={`p-2.5 rounded-xl shadow-sm border transition-colors ${
-              showLayers
-                ? 'bg-violet-50 border-violet-300 text-violet-600'
-                : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
-            }`}
-            title="图层"
-          >
-            <Layers size={18} />
-          </button>
-
-          {/* 图层下拉面板 */}
-          {showLayers && (
-            <div className="absolute top-full right-0 mt-2 w-72 max-h-96 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-              <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-gray-900">图层</h3>
-                <span className="text-xs text-gray-400">{items.filter(i => i.type === 'image').length} 张图片</span>
-              </div>
-              <div className="overflow-y-auto max-h-80">
-                <div className="py-1">
-                  {[...items].filter(i => i.type === 'image' && i.src).sort((a, b) => b.zIndex - a.zIndex).map((item, index) => (
-                    <div
-                      key={item.id}
-                      onClick={() => {
-                        autoZoomToImage(item);
-                        setShowLayers(false);
-                      }}
-                      className={`flex items-center gap-3 px-4 py-2 cursor-pointer transition-colors ${
-                        selectedIds.includes(item.id)
-                          ? 'bg-violet-50'
-                          : 'hover:bg-gray-50'
-                      }`}
-                    >
-                      {/* 缩略图 */}
-                      <div className="w-10 h-10 rounded-lg bg-gray-100 flex-shrink-0 overflow-hidden">
-                        <img src={item.src} alt="" className="w-full h-full object-cover" />
-                      </div>
-
-                      {/* 名称 */}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-700 truncate">
-                          图片 {index + 1}
-                        </p>
-                        <p className="text-xs text-gray-400 truncate">{item.prompt || '无提示词'}</p>
-                      </div>
-
-                      {/* 删除按钮 */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setItems(prev => prev.filter(i => i.id !== item.id));
-                          setSelectedIds(prev => prev.filter(id => id !== item.id));
-                        }}
-                        className="p-1 rounded hover:bg-red-100 text-gray-400 hover:text-red-500"
-                        title="删除"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+      {/* --- 图层面板 --- */}
+      <CanvasLayers
+        items={items}
+        selectedIds={selectedIds}
+        onSelect={autoZoomToImage}
+        onDelete={(id) => {
+          setItems(prev => prev.filter(i => i.id !== id));
+          setSelectedIds(prev => prev.filter(sid => sid !== id));
+        }}
+      />
 
       {/* --- Left Tool Rail --- */}
-      <div className="fixed left-4 flex flex-col items-center gap-1 p-2 bg-gray-100/90 backdrop-blur-sm shadow-lg rounded-full z-40" style={{ top: '50%', transform: 'translateY(-50%)' }}>
-        {/* 选择 */}
-        <Tooltip content="选择 (1)" side="right">
-          <button
-            className={`relative p-3 rounded-full transition-all duration-200 ease-out ${toolMode === ToolMode.SELECT ? 'bg-gray-800 text-white shadow-md scale-105' : 'text-gray-500 hover:bg-gray-200/50 hover:scale-105'}`}
-            onClick={() => { setToolMode(ToolMode.SELECT); setShowCreativeTools(false); }}
-          >
-            <MousePointer2 size={20} />
-            <span className="absolute bottom-1.5 right-1.5 text-[10px] font-bold leading-none">1</span>
-          </button>
-        </Tooltip>
-
-        {/* 形状工具（含画笔） */}
-        <div
-          className="relative"
-          onMouseEnter={() => setShowCreativeTools(true)}
-          onMouseLeave={() => setShowCreativeTools(false)}
-        >
-          <Tooltip content="形状工具 (2)" side="right">
-            <button
-              className={`relative p-3 rounded-full transition-all duration-200 ease-out ${[ToolMode.BRUSH, ToolMode.TEXT, ToolMode.RECTANGLE, ToolMode.CIRCLE, ToolMode.LINE, ToolMode.ARROW].includes(toolMode)
-                ? 'bg-gray-800 text-white shadow-md scale-105'
-                : 'text-gray-500 hover:bg-gray-200/50 hover:scale-105'
-                }`}
-              onClick={() => {
-                const shapeTools = [ToolMode.BRUSH, ToolMode.TEXT, ToolMode.RECTANGLE, ToolMode.CIRCLE, ToolMode.LINE, ToolMode.ARROW];
-                if (!shapeTools.includes(toolMode)) {
-                  setToolMode(lastShapeTool);
-                } else {
-                  setShowCreativeTools(!showCreativeTools);
-                }
-              }}
-            >
-              {toolMode === ToolMode.BRUSH ? <Pencil size={20} /> :
-               toolMode === ToolMode.TEXT ? <Type size={20} /> :
-               toolMode === ToolMode.LINE ? <Minus size={20} /> :
-               toolMode === ToolMode.ARROW ? <MoveRight size={20} /> :
-               toolMode === ToolMode.RECTANGLE ? <Square size={20} /> :
-               toolMode === ToolMode.CIRCLE ? <Circle size={20} /> :
-               <Shapes size={20} />}
-              <span className="absolute bottom-1.5 right-1.5 text-[10px] font-bold leading-none">2</span>
-            </button>
-          </Tooltip>
-
-          {/* 形状展开菜单 */}
-          {showCreativeTools && (
-            <div className="absolute left-full top-0 flex items-start z-50">
-              <div className="w-3" />
-              <div className="flex flex-col gap-3 p-3 bg-white/98 backdrop-blur-md shadow-2xl rounded-2xl animate-in slide-in-from-left-3 fade-in duration-200 border border-gray-200/80">
-                {/* 形状工具行 */}
-                <div className="flex gap-1.5">
-                  <Tooltip content="画笔 (B)" side="top">
-                    <button
-                      className={`w-10 h-10 rounded-xl transition-all duration-200 flex items-center justify-center ${toolMode === ToolMode.BRUSH ? 'bg-gray-900 text-white shadow-lg scale-105' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'}`}
-                      onClick={() => { setToolMode(ToolMode.BRUSH); setLastShapeTool(ToolMode.BRUSH); }}
-                    >
-                      <Pencil size={18} />
-                    </button>
-                  </Tooltip>
-                  <Tooltip content="文字 (T)" side="top">
-                    <button
-                      className={`w-10 h-10 rounded-xl transition-all duration-200 flex items-center justify-center ${toolMode === ToolMode.TEXT ? 'bg-gray-900 text-white shadow-lg scale-105' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'}`}
-                      onClick={() => { setToolMode(ToolMode.TEXT); setLastShapeTool(ToolMode.TEXT); }}
-                    >
-                      <Type size={18} />
-                    </button>
-                  </Tooltip>
-                  <Tooltip content="直线 (L)" side="top">
-                    <button
-                      className={`w-10 h-10 rounded-xl transition-all duration-200 flex items-center justify-center ${toolMode === ToolMode.LINE ? 'bg-gray-900 text-white shadow-lg scale-105' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'}`}
-                      onClick={() => { setToolMode(ToolMode.LINE); setLastShapeTool(ToolMode.LINE); }}
-                    >
-                      <Minus size={18} />
-                    </button>
-                  </Tooltip>
-                  <Tooltip content="箭头 (A)" side="top">
-                    <button
-                      className={`w-10 h-10 rounded-xl transition-all duration-200 flex items-center justify-center ${toolMode === ToolMode.ARROW ? 'bg-gray-900 text-white shadow-lg scale-105' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'}`}
-                      onClick={() => { setToolMode(ToolMode.ARROW); setLastShapeTool(ToolMode.ARROW); }}
-                    >
-                      <MoveRight size={18} />
-                    </button>
-                  </Tooltip>
-                  <Tooltip content="矩形 (R)" side="top">
-                    <button
-                      className={`w-10 h-10 rounded-xl transition-all duration-200 flex items-center justify-center ${toolMode === ToolMode.RECTANGLE ? 'bg-gray-900 text-white shadow-lg scale-105' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'}`}
-                      onClick={() => { setToolMode(ToolMode.RECTANGLE); setLastShapeTool(ToolMode.RECTANGLE); }}
-                    >
-                      <Square size={18} />
-                    </button>
-                  </Tooltip>
-                  <Tooltip content="圆形 (O)" side="top">
-                    <button
-                      className={`w-10 h-10 rounded-xl transition-all duration-200 flex items-center justify-center ${toolMode === ToolMode.CIRCLE ? 'bg-gray-900 text-white shadow-lg scale-105' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'}`}
-                      onClick={() => { setToolMode(ToolMode.CIRCLE); setLastShapeTool(ToolMode.CIRCLE); }}
-                    >
-                      <Circle size={18} />
-                    </button>
-                  </Tooltip>
-                </div>
-                {/* 分隔线 */}
-                <div className="h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent" />
-                {/* 颜色选择器行 */}
-                <div className="flex gap-1.5">
-                  {colorPalette.map((color) => (
-                    <button
-                      key={color}
-                      className={`w-10 h-10 rounded-xl transition-all duration-200 hover:scale-110 ${getToolColor(toolMode) === color ? 'ring-2 ring-offset-2 ring-gray-400 scale-110' : ''}`}
-                      style={{ backgroundColor: color }}
-                      onClick={() => setToolColor(toolMode, color)}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-      </div>
+      <CanvasToolbar
+        toolMode={toolMode}
+        onToolModeChange={setToolMode}
+        toolColors={toolColors}
+        onToolColorChange={setToolColor}
+      />
 
       {/* --- Main Canvas --- */}
       <div
@@ -2286,8 +2088,8 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
                   overflow: item.type === 'text' ? 'visible' : undefined,
                 }}
               >
-                {/* 选中边框 - 单选时显示完整边框和手柄（裁剪时隐藏，线段/箭头/画笔使用端点控制不需要边框） */}
-                {isSelected && selectedIds.length === 1 && croppingImageId !== item.id && item.type !== 'line' && item.type !== 'arrow' && item.type !== 'brush' && (
+                {/* 选中边框 - 单选时显示完整边框和手柄（裁剪时隐藏，线段/箭头使用端点控制不需要边框） */}
+                {isSelected && selectedIds.length === 1 && croppingImageId !== item.id && item.type !== 'line' && item.type !== 'arrow' && (
                   <>
                     {/* 外发光 */}
                     <div className="absolute -inset-3 rounded-2xl bg-primary/10 blur-md pointer-events-none" />
@@ -2546,13 +2348,24 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
                               取消
                             </button>
 
-                            {/* 确认 */}
+                            {/* 确认 - 显示傻币消耗 */}
                             <button
                               onClick={handleConfirmMaskEdit}
                               disabled={!hasMaskContent || (maskEditMode === 'repaint' && !repaintPrompt.trim())}
-                              className="px-2.5 py-1.5 text-xs font-medium bg-violet-500 hover:bg-violet-600 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+                              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-violet-500 hover:bg-violet-600 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
                             >
-                              {maskEditMode === 'erase' ? '擦除' : '重绘'}
+                              {/* 傻币图标 */}
+                              <svg viewBox="0 0 24 24" className="w-4 h-4">
+                                <circle cx="12" cy="12" r="11" fill="#FCD34D" />
+                                <circle cx="12" cy="12" r="9" fill="#FBBF24" />
+                                <circle cx="12" cy="12" r="7.5" fill="#F59E0B" />
+                                <g transform="translate(6, 5) scale(0.5)">
+                                  <path d="M12 0C9 0 7 2 7 4.5V8C7 8 7.4 7.4 8 8C8.6 8.6 9 8 9.5 8C10 8 10.3 8.6 12 8C13.7 8.6 14 8 14.5 8C15 8 15.4 8.6 16 8C16.6 7.4 17 8 17 8V4.5C17 2 15 0 12 0Z" fill="white" opacity="0.95"/>
+                                  <path d="M6.5 7C3.5 7 1.5 9 1.5 11.5V15C1.5 15 1.9 14.4 2.5 15C3.1 15.6 3.5 15 4 15C4.5 15 4.8 15.6 6.5 15C8.2 15.6 8.5 15 9 15C9.5 15 9.9 15.6 10.5 15C11.1 14.4 11.5 15 11.5 15V11.5C11.5 9 9.5 7 6.5 7Z" fill="white" opacity="0.9"/>
+                                  <path d="M17.5 7C14.5 7 12.5 9 12.5 11.5V15C12.5 15 12.9 14.4 13.5 15C14.1 15.6 14.5 15 15 15C15.5 15 15.8 15.6 17.5 15C19.2 15.6 19.5 15 20 15C20.5 15 20.9 15.6 21.5 15C22.1 14.4 22.5 15 22.5 15V11.5C22.5 9 20.5 7 17.5 7Z" fill="white" opacity="0.9"/>
+                                </g>
+                              </svg>
+                              <span>2</span>
                             </button>
                           </div>
                         </div>
@@ -2579,8 +2392,18 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
                                 disabled={!repaintPrompt.trim()}
                                 className="flex items-center gap-1 bg-violet-500 hover:bg-violet-600 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
                               >
-                                <ArrowRight size={14} />
-                                确定
+                                {/* 傻币图标 */}
+                                <svg viewBox="0 0 24 24" className="w-4 h-4">
+                                  <circle cx="12" cy="12" r="11" fill="#FCD34D" />
+                                  <circle cx="12" cy="12" r="9" fill="#FBBF24" />
+                                  <circle cx="12" cy="12" r="7.5" fill="#F59E0B" />
+                                  <g transform="translate(6, 5) scale(0.5)">
+                                    <path d="M12 0C9 0 7 2 7 4.5V8C7 8 7.4 7.4 8 8C8.6 8.6 9 8 9.5 8C10 8 10.3 8.6 12 8C13.7 8.6 14 8 14.5 8C15 8 15.4 8.6 16 8C16.6 7.4 17 8 17 8V4.5C17 2 15 0 12 0Z" fill="white" opacity="0.95"/>
+                                    <path d="M6.5 7C3.5 7 1.5 9 1.5 11.5V15C1.5 15 1.9 14.4 2.5 15C3.1 15.6 3.5 15 4 15C4.5 15 4.8 15.6 6.5 15C8.2 15.6 8.5 15 9 15C9.5 15 9.9 15.6 10.5 15C11.1 14.4 11.5 15 11.5 15V11.5C11.5 9 9.5 7 6.5 7Z" fill="white" opacity="0.9"/>
+                                    <path d="M17.5 7C14.5 7 12.5 9 12.5 11.5V15C12.5 15 12.9 14.4 13.5 15C14.1 15.6 14.5 15 15 15C15.5 15 15.8 15.6 17.5 15C19.2 15.6 19.5 15 20 15C20.5 15 20.9 15.6 21.5 15C22.1 14.4 22.5 15 22.5 15V11.5C22.5 9 20.5 7 17.5 7Z" fill="white" opacity="0.9"/>
+                                  </g>
+                                </svg>
+                                <span>2</span>
                               </button>
                             </div>
                           </div>
@@ -2908,13 +2731,18 @@ export function CanvasEditor({ project, onBack, onLogout: _onLogout, user: _user
                     style={{ transform: `translateX(-50%) translateY(100%) scale(${1 / scale})`, transformOrigin: 'top center' }}
                   >
                     <div className="mt-2 px-3 py-2 bg-white/95 backdrop-blur-sm rounded-lg shadow-lg border border-gray-200/80 max-w-xs flex items-center gap-2">
-                      <p className="text-xs text-gray-500 truncate flex-1" title={item.prompt}>
+                      <p className="text-xs text-gray-500 truncate flex-1 select-text cursor-text" title={item.prompt}>
                         {item.prompt}
                       </p>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          navigator.clipboard.writeText(item.prompt || '');
+                          e.preventDefault();
+                          const text = item.prompt || '';
+                          navigator.clipboard.writeText(text).then(() => {
+                            clearClipboard(); // 清空内部剪贴板，让 Ctrl+V 能正常粘贴文本
+                            console.log('提示词复制成功:', text);
+                          });
                         }}
                         className="p-1 hover:bg-gray-100 rounded transition-colors flex-shrink-0"
                         title="复制提示词"

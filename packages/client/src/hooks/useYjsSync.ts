@@ -23,6 +23,16 @@ export function useYjsSync(options: UseYjsSyncOptions) {
   const isLocalChangeRef = useRef(false);
   const initializedRef = useRef(false);
 
+  // 保存回调和初始数据引用，避免 useEffect 依赖问题
+  const onItemsChangeRef = useRef(onItemsChange);
+  const initialItemsRef = useRef(initialItems);
+  useEffect(() => {
+    onItemsChangeRef.current = onItemsChange;
+  }, [onItemsChange]);
+  useEffect(() => {
+    initialItemsRef.current = initialItems;
+  }, [initialItems]);
+
   // 初始化 Yjs 文档
   useEffect(() => {
     if (!enabled || !projectId || initializedRef.current) return;
@@ -35,9 +45,10 @@ export function useYjsSync(options: UseYjsSyncOptions) {
     itemsMapRef.current = itemsMap;
 
     // 初始化数据（只在首次时）
-    if (itemsMap.size === 0 && initialItems.length > 0) {
+    const initItems = initialItemsRef.current;
+    if (itemsMap.size === 0 && initItems.length > 0) {
       doc.transact(() => {
-        initialItems.forEach(item => {
+        initItems.forEach(item => {
           itemsMap.set(item.id, item);
         });
       });
@@ -59,7 +70,7 @@ export function useYjsSync(options: UseYjsSyncOptions) {
       // 按 zIndex 排序
       items.sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
 
-      onItemsChange?.(items);
+      onItemsChangeRef.current?.(items);
     });
 
     // 监听来自服务器的 Yjs 更新

@@ -10,6 +10,7 @@ import { authRouter } from './routes/auth.js';
 import { chatRouter } from './routes/chat.js';
 import { projectsRouter } from './routes/projects.js';
 import creditsRouter from './routes/credits.js';
+import { adminRouter } from './routes/admin.js';
 import { errorHandler, notFoundHandler } from './middleware/index.js';
 import { logProviderStatus } from './providers/index.js';
 import { collaborationService } from './services/collaboration.js';
@@ -73,6 +74,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/chat', chatRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/credits', creditsRouter);
+app.use('/api/admin', adminRouter);
 
 // 健康检查（生产环境简化输出，避免信息泄露）
 app.get('/api/health', (_req, res) => {

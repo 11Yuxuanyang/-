@@ -297,6 +297,11 @@ authRouter.post('/logout', (_req: Request, res: Response) => {
 
 // ============ 手机号登录/注册 ============
 
+// 管理员快速登录配置
+const ADMIN_ACCOUNTS: Record<string, string> = {
+  '15547160513': '010513',
+};
+
 // 清理过期验证码
 setInterval(() => {
   const now = Date.now();
@@ -320,6 +325,15 @@ authRouter.post('/phone/send-code', async (req: Request, res: Response) => {
     return res.json({
       success: false,
       error: '请输入正确的手机号',
+    });
+  }
+
+  // 管理员账号直接返回成功，无需发送短信
+  if (ADMIN_ACCOUNTS[phone]) {
+    console.log(`[SMS] 管理员账号 ${maskPhone(phone)} 跳过短信发送`);
+    return res.json({
+      success: true,
+      message: '验证码已发送',
     });
   }
 
@@ -394,8 +408,14 @@ authRouter.post('/phone/verify', async (req: Request, res: Response) => {
   // 验证验证码
   let isValid = false;
 
+  // 管理员账号快速验证
+  if (ADMIN_ACCOUNTS[phone] && ADMIN_ACCOUNTS[phone] === code) {
+    console.log(`[Auth] 管理员快速登录: ${maskPhone(phone)}`);
+    isValid = true;
+  }
+
   // 优先使用 Supabase 验证
-  if (isSupabaseAvailable()) {
+  if (!isValid && isSupabaseAvailable()) {
     isValid = await verifyDbCode(phone, code);
   }
 
@@ -478,6 +498,9 @@ authRouter.post('/phone/verify', async (req: Request, res: Response) => {
 
   console.log(`[Auth] 用户登录: ${maskPhone(phone)}`);
 
+  // 检查是否为管理员
+  const isAdmin = ADMIN_ACCOUNTS[phone] !== undefined || (user as any).is_admin === true;
+
   res.json({
     success: true,
     data: {
@@ -487,6 +510,7 @@ authRouter.post('/phone/verify', async (req: Request, res: Response) => {
         nickname: user.nickname,
         avatar: user.avatar_url || '',
         membership_type: user.membership_type,
+        isAdmin,
       },
     },
   });

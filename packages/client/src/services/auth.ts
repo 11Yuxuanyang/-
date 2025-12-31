@@ -11,6 +11,14 @@ export interface User {
   nickname: string;
   avatar?: string;
   membership_type: 'free' | 'monthly' | 'yearly';
+  isAdmin?: boolean;
+}
+
+/**
+ * 检查用户是否为管理员
+ */
+export function isAdmin(user: User | null): boolean {
+  return user?.isAdmin === true;
 }
 
 /**

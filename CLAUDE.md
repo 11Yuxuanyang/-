@@ -15,11 +15,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [x] 用户认证系统（手机号 + 验证码）
 - [x] 数据库配置（users, projects, verification_codes, usage_records）
 - [x] AI 图片生成（豆包 Seedream）
-- [x] AI 聊天（OpenRouter minimax-m2.1）
+- [x] AI 聊天（OpenRouter minimax-m2.1 + LangGraph 多轮对话）
 - [x] 图片存储（火山引擎 TOS）
 - [x] 积分系统（每日免费额度，自动重置）
 - [x] AI 擦除/重绘功能优化
 - [x] 积分显示组件（CreditDisplay）
+- [x] 管理后台（用户管理、订单管理、数据统计）
+- [x] AI 聊天 Token 计费（输入/输出分开计费、缓存命中跟踪）
+- [x] 系统提示词优化（从 2365 字符精简到 328 字符）
 
 ### ⏳ 待开发
 - [ ] 短信验证码服务（接入阿里云/火山引擎短信）
@@ -165,7 +168,7 @@ JWT_SECRET=xxx
 
 ```sql
 -- 用户表
-users (id, phone, wechat_openid, nickname, avatar_url, membership_type, ...)
+users (id, phone, wechat_openid, nickname, avatar_url, membership_type, is_admin, status, ...)
 
 -- 项目表
 projects (id, user_id, name, items, viewport, thumbnail, is_deleted, ...)
@@ -173,8 +176,21 @@ projects (id, user_id, name, items, viewport, thumbnail, is_deleted, ...)
 -- 验证码表
 verification_codes (id, phone, code, expires_at, used, ...)
 
--- 用量记录表
+-- 用量记录表（AI 图片）
 usage_records (id, user_id, action_type, tokens_used, cost_cents, ...)
+
+-- 聊天消费记录表
+chat_consumptions (
+  id, user_id, model, provider,
+  prompt_tokens, completion_tokens, total_tokens,
+  cache_read_tokens, cache_write_tokens,
+  input_cost_cents, output_cost_cents,
+  cache_read_cost_cents, cache_write_cost_cents, cache_savings_cents,
+  cost_cents, credits_used, created_at
+)
+
+-- 管理员操作日志
+admin_logs (id, admin_id, action, target_type, target_id, details, ip_address, created_at)
 ```
 
 ### 前端核心结构 (packages/client/src)
@@ -190,11 +206,16 @@ usage_records (id, user_id, action_type, tokens_used, cost_cents, ...)
 - `providers/` - AI 图片提供商 (OpenAI, 豆包, 千问)
 - `providers/chat-*.ts` - 聊天提供商
 - `routes/ai.ts` - 图片生成/编辑 API
-- `routes/chat.ts` - 聊天 API
+- `routes/chat.ts` - 聊天 API（LangGraph 模式）
 - `routes/auth.ts` - 认证 API（手机号、微信）
 - `routes/projects.ts` - 项目云端同步 API
+- `routes/admin.ts` - 管理后台 API
 - `services/authService.ts` - 认证服务（JWT、验证码）
+- `services/langGraphChat.ts` - LangGraph 多轮对话服务
+- `services/chatUsageService.ts` - 聊天 Token 计费服务
+- `services/adminService.ts` - 管理后台业务逻辑
 - `services/tosUpload.ts` - TOS 图片上传
+- `middleware/adminAuth.ts` - 管理员权限中间件
 - `lib/supabase.ts` - Supabase 客户端
 
 ### API 端点
@@ -227,6 +248,19 @@ usage_records (id, user_id, action_type, tokens_used, cost_cents, ...)
 **通用**
 - `GET /api/config` - 获取配置
 - `GET /api/health` - 健康检查
+
+**管理后台** (需要管理员权限)
+- `GET /api/admin/stats/overview` - 概览统计
+- `GET /api/admin/stats/users` - 用户趋势
+- `GET /api/admin/stats/revenue` - 收入趋势
+- `GET /api/admin/stats/usage` - AI 使用统计
+- `GET /api/admin/stats/chat` - 聊天 Token 统计（含缓存命中率）
+- `GET /api/admin/users` - 用户列表
+- `GET /api/admin/users/:id` - 用户详情（含 Token 统计）
+- `POST /api/admin/users/:id/credits` - 调整积分
+- `POST /api/admin/users/:id/ban` - 封禁用户
+- `GET /api/admin/orders` - 订单列表
+- `POST /api/admin/orders/:id/refund` - 处理退款
 
 ### Key Patterns
 
@@ -267,6 +301,25 @@ usage_records (id, user_id, action_type, tokens_used, cost_cents, ...)
 - 聊天时自动传递画布元素信息
 - 支持多模态消息（图片 + 文字）
 - 系统提示词使用 XML 结构化格式
+
+### AI 聊天 Token 计费
+- **模型**: MiniMax M2.1 via OpenRouter
+- **价格** (每百万 tokens):
+  - 标准输入: $0.30
+  - 标准输出: $1.20
+  - 缓存读取: $0.03 (节省 90%)
+  - 缓存写入: $0.375 (贵 25%)
+- **汇率**: 1 USD = 7.03 CNY
+- **缓存触发条件**: 需要 1024+ tokens
+- **记录字段**: prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, 各项费用
+
+### 管理后台
+- **入口**: `/#/admin`
+- **权限**: 需要 `users.is_admin = true`
+- **功能**:
+  - 仪表盘：用户统计、收入统计、AI 使用量、聊天 Token 统计（含缓存命中率）
+  - 用户管理：列表、详情、积分调整、封禁/解封
+  - 订单管理：列表、退款处理
 
 ## 开发注意事项
 

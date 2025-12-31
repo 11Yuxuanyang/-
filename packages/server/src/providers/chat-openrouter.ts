@@ -316,6 +316,7 @@ export class OpenRouterChatProvider implements ChatProvider {
 
   /**
    * 流式聊天（支持工具调用）
+   * yield 字符串内容，最后 yield 一个 JSON 对象字符串表示 usage（以 "[[USAGE]]" 开头）
    */
   async *chatStream(request: ChatRequest): AsyncGenerator<string, void, unknown> {
     const { messages, canvasContext } = request;
@@ -334,6 +335,7 @@ export class OpenRouterChatProvider implements ChatProvider {
         model: this.model,
         messages: conversationMessages,
         stream: true,
+        stream_options: { include_usage: true }, // 请求返回 usage 信息
       };
 
       // 如果有画布上下文，添加工具定义
@@ -378,6 +380,8 @@ export class OpenRouterChatProvider implements ChatProvider {
         function: { name: string; arguments: string };
       }> = [];
       let currentToolCallIndex = -1;
+      let totalPromptTokens = 0;
+      let totalCompletionTokens = 0;
 
       try {
         while (true) {
@@ -400,6 +404,12 @@ export class OpenRouterChatProvider implements ChatProvider {
             try {
               const json = JSON.parse(data);
               const delta = json.choices?.[0]?.delta;
+
+              // 捕获 usage 信息（通常在最后一个 chunk）
+              if (json.usage) {
+                totalPromptTokens = json.usage.prompt_tokens || 0;
+                totalCompletionTokens = json.usage.completion_tokens || 0;
+              }
 
               // 处理普通内容
               if (delta?.content) {
@@ -472,7 +482,12 @@ export class OpenRouterChatProvider implements ChatProvider {
       }
 
       // 没有工具调用，流式响应已完成
-      console.log('[OpenRouter Chat] 流式响应完成');
+      console.log(`[OpenRouter Chat] 流式响应完成, tokens: prompt=${totalPromptTokens}, completion=${totalCompletionTokens}`);
+
+      // yield usage 信息（以特殊前缀标识，不会显示给用户）
+      if (totalPromptTokens > 0 || totalCompletionTokens > 0) {
+        yield `[[USAGE]]${JSON.stringify({ promptTokens: totalPromptTokens, completionTokens: totalCompletionTokens })}`;
+      }
       return;
     }
 

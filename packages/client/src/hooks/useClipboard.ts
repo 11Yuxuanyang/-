@@ -17,6 +17,7 @@ interface UseClipboardReturn {
   cut: () => void;
   paste: () => void;
   duplicate: () => void;
+  clearClipboard: () => void;
 }
 
 export function useClipboard({
@@ -96,11 +97,17 @@ export function useClipboard({
     setSelectedIds(newItems.map(i => i.id));
   }, [items, selectedIds, setItems, setSelectedIds]);
 
+  // 清空剪贴板
+  const clearClipboard = useCallback(() => {
+    setClipboard([]);
+  }, []);
+
   return {
     clipboard,
     copy,
     cut,
     paste,
     duplicate,
+    clearClipboard,
   };
 }

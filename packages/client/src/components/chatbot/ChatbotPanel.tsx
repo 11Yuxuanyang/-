@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { X, Plus, History, Maximize2, Minimize2, Trash2, ChevronLeft } from 'lucide-react';
 import { ChatMessage, ChatAttachment, CanvasItem } from '@/types';
-import { chatStream, ChatMessageInput, CanvasContext, CanvasItemContext } from '@/services/api';
+import { chatStream, CanvasContext, CanvasItemContext } from '@/services/api';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { generateId } from '@/utils/id';

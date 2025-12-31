@@ -113,7 +113,7 @@ export function HomePage({ onLogout, onLoginSuccess: propOnLoginSuccess, user: p
       if (savedUser) {
         try {
           setUser(JSON.parse(savedUser));
-        } catch (_e) {
+        } catch {
           localStorage.removeItem('user');
         }
       }

@@ -36,7 +36,6 @@ export function MembershipModal({
   onPurchaseSuccess,
 }: MembershipModalProps) {
   const [plans, setPlans] = useState<MembershipPlan[]>([]);
-  const [freeUserDailySignin, setFreeUserDailySignin] = useState(20);
   const [loading, setLoading] = useState(true);
   const [purchasing, setPurchasing] = useState(false);
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
@@ -59,7 +58,6 @@ export function MembershipModal({
       try {
         const data = await getMembershipPlans();
         setPlans(data.plans);
-        setFreeUserDailySignin(data.freeUserDailySignin);
       } catch (error) {
         console.error('获取套餐列表失败:', error);
       } finally {

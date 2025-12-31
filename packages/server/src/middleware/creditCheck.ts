@@ -7,8 +7,9 @@ import { Request, Response, NextFunction } from 'express';
 import { creditService, calculateCost, inferResolution, ActionType, Resolution } from '../services/creditService';
 import { verifyToken } from '../services/authService';
 
-// 扩展 Request 类型
+// 扩展 Request 类型（Express 类型扩展需要使用 namespace）
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       user?: {

@@ -42,6 +42,12 @@ export function useCollaboration(options: UseCollaborationOptions) {
   const lastCursorUpdateRef = useRef(0);
   const cursorThrottleMs = 50; // 50ms 节流
 
+  // 保存回调引用，避免 useEffect 依赖问题
+  const onCanvasOperationRef = useRef(onCanvasOperation);
+  useEffect(() => {
+    onCanvasOperationRef.current = onCanvasOperation;
+  }, [onCanvasOperation]);
+
   // 连接并加入房间
   useEffect(() => {
     if (!enabled || !projectId) return;
@@ -88,7 +94,7 @@ export function useCollaboration(options: UseCollaborationOptions) {
         });
       },
       onCanvasOperation: (operation, fromUserId) => {
-        onCanvasOperation?.(operation, fromUserId);
+        onCanvasOperationRef.current?.(operation, fromUserId);
       },
     });
 

@@ -3,7 +3,8 @@ import { HomePage } from './components/HomePage';
 import { CanvasEditor } from './components/CanvasEditor';
 import { Project } from './types';
 import * as ProjectService from './services/projectService';
-import { isLoggedIn, getUser, logout, User } from './services/auth';
+import { isLoggedIn, getUser, logout, User, isAdmin } from './services/auth';
+import { AdminApp } from './components/admin/AdminApp';
 
 export default function App() {
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
@@ -79,6 +80,24 @@ export default function App() {
         <div className="text-gray-500 text-xl">加载中...</div>
       </div>
     );
+  }
+
+  // 渲染管理后台（需要管理员权限）
+  if (route.startsWith('/admin')) {
+    if (!user || !isAdmin(user)) {
+      // 非管理员回到首页
+      window.location.hash = '';
+      return (
+        <HomePage
+          onOpenProject={() => {}}
+          onCreateProject={() => {}}
+          onLogout={handleLogout}
+          user={user}
+          onLoginSuccess={handleLoginSuccess}
+        />
+      );
+    }
+    return <AdminApp user={user} onLogout={handleLogout} />;
   }
 
   // 渲染编辑器页面（需要登录）
