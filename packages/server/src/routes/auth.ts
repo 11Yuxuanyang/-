@@ -7,6 +7,7 @@ import {
   verifyCode as verifyDbCode,
   canSendCode,
   getOrCreateUserByPhone,
+  isAdminByPhone,
 } from '../services/authService.js';
 import { isSupabaseAvailable } from '../lib/supabase.js';
 
@@ -28,23 +29,7 @@ const loginStates = new Map<string, {
 // 用户存储（生产环境应使用数据库）
 const users = new Map<string, User>();
 
-// 手机用户存储（按手机号索引）
-const phoneUsers = new Map<string, PhoneUser>();
-
-// 验证码存储
-const verificationCodes = new Map<string, {
-  code: string;
-  createdAt: number;
-  attempts: number;
-}>();
-
-interface PhoneUser {
-  id: string;
-  phone: string;
-  nickname: string;
-  avatar: string;
-  createdAt: number;
-}
+// 验证码和用户数据完全使用数据库存储（Supabase）
 
 interface WechatUser {
   openid: string;
@@ -297,21 +282,11 @@ authRouter.post('/logout', (_req: Request, res: Response) => {
 
 // ============ 手机号登录/注册 ============
 
-// 管理员快速登录配置
-const ADMIN_ACCOUNTS: Record<string, string> = {
-  '15547160513': '010513',
-};
+// 开发环境管理员快速验证码（可选，仅用于开发测试）
+// 设置 ADMIN_DEV_CODE 环境变量可让管理员用固定验证码登录（不需要短信）
+const ADMIN_DEV_CODE = process.env.ADMIN_DEV_CODE;
 
-// 清理过期验证码
-setInterval(() => {
-  const now = Date.now();
-  for (const [phone, data] of verificationCodes.entries()) {
-    // 5分钟过期
-    if (now - data.createdAt > 5 * 60 * 1000) {
-      verificationCodes.delete(phone);
-    }
-  }
-}, 60 * 1000);
+// 验证码清理由数据库 expires_at 字段处理
 
 /**
  * POST /api/auth/phone/send-code
@@ -328,48 +303,40 @@ authRouter.post('/phone/send-code', async (req: Request, res: Response) => {
     });
   }
 
-  // 管理员账号直接返回成功，无需发送短信
-  if (ADMIN_ACCOUNTS[phone]) {
-    console.log(`[SMS] 管理员账号 ${maskPhone(phone)} 跳过短信发送`);
+  // 如果设置了开发验证码，管理员可跳过短信发送
+  if (ADMIN_DEV_CODE && isSupabaseAvailable()) {
+    const isAdmin = await isAdminByPhone(phone);
+    if (isAdmin) {
+      console.log(`[SMS] 管理员账号 ${maskPhone(phone)} 跳过短信发送（使用开发验证码）`);
+      return res.json({
+        success: true,
+        message: '验证码已发送',
+      });
+    }
+  }
+
+  // 检查数据库是否可用
+  if (!isSupabaseAvailable()) {
     return res.json({
-      success: true,
-      message: '验证码已发送',
+      success: false,
+      error: '服务暂不可用，请稍后再试',
     });
   }
 
-  // 如果 Supabase 可用，使用数据库检查发送频率
-  if (isSupabaseAvailable()) {
-    const allowed = await canSendCode(phone);
-    if (!allowed) {
-      return res.json({
-        success: false,
-        error: '发送太频繁，请稍后再试',
-      });
-    }
-  } else {
-    // 回退到内存检查
-    const existing = verificationCodes.get(phone);
-    if (existing && Date.now() - existing.createdAt < 60 * 1000) {
-      return res.json({
-        success: false,
-        error: '发送太频繁，请稍后再试',
-      });
-    }
+  // 使用数据库检查发送频率
+  const allowed = await canSendCode(phone);
+  if (!allowed) {
+    return res.json({
+      success: false,
+      error: '发送太频繁，请稍后再试',
+    });
   }
 
   // 生成验证码
   const code = generateCode();
 
-  // 存储验证码
-  if (isSupabaseAvailable()) {
-    await saveVerificationCode(phone, code);
-  }
-  // 同时保存到内存（作为回退）
-  verificationCodes.set(phone, {
-    code,
-    createdAt: Date.now(),
-    attempts: 0,
-  });
+  // 存储验证码到数据库
+  await saveVerificationCode(phone, code);
 
   // TODO: 实际项目中需要调用短信服务发送验证码
   // 日志脱敏：不输出完整手机号和验证码
@@ -408,98 +375,51 @@ authRouter.post('/phone/verify', async (req: Request, res: Response) => {
   // 验证验证码
   let isValid = false;
 
-  // 管理员账号快速验证
-  if (ADMIN_ACCOUNTS[phone] && ADMIN_ACCOUNTS[phone] === code) {
-    console.log(`[Auth] 管理员快速登录: ${maskPhone(phone)}`);
-    isValid = true;
+  // 管理员使用开发验证码快速登录（需要配置 ADMIN_DEV_CODE）
+  if (ADMIN_DEV_CODE && code === ADMIN_DEV_CODE && isSupabaseAvailable()) {
+    const isAdmin = await isAdminByPhone(phone);
+    if (isAdmin) {
+      console.log(`[Auth] 管理员快速登录: ${maskPhone(phone)}`);
+      isValid = true;
+    }
   }
 
-  // 优先使用 Supabase 验证
-  if (!isValid && isSupabaseAvailable()) {
+  // 检查数据库是否可用
+  if (!isSupabaseAvailable()) {
+    return res.json({
+      success: false,
+      error: '服务暂不可用，请稍后再试',
+    });
+  }
+
+  // 使用数据库验证验证码
+  if (!isValid) {
     isValid = await verifyDbCode(phone, code);
   }
 
-  // 如果 Supabase 验证失败，尝试内存验证（回退）
+  // 验证失败
   if (!isValid) {
-    const stored = verificationCodes.get(phone);
-
-    if (!stored) {
-      return res.json({
-        success: false,
-        error: '验证码已过期，请重新获取',
-      });
-    }
-
-    if (stored.attempts >= 5) {
-      verificationCodes.delete(phone);
-      return res.json({
-        success: false,
-        error: '验证码错误次数过多，请重新获取',
-      });
-    }
-
-    if (Date.now() - stored.createdAt > 5 * 60 * 1000) {
-      verificationCodes.delete(phone);
-      return res.json({
-        success: false,
-        error: '验证码已过期，请重新获取',
-      });
-    }
-
-    if (stored.code !== code) {
-      stored.attempts++;
-      return res.json({
-        success: false,
-        error: '验证码错误',
-      });
-    }
-
-    isValid = true;
+    return res.json({
+      success: false,
+      error: '验证码错误或已过期',
+    });
   }
 
-  // 验证成功，清理内存中的验证码
-  verificationCodes.delete(phone);
-
-  // 查找或创建用户
-  let user;
-  let token = '';
-
-  if (isSupabaseAvailable()) {
-    // 使用 Supabase
-    user = await getOrCreateUserByPhone(phone);
-    if (user) {
-      token = generateToken({ userId: user.id, phone });
-    }
-  }
-
-  // 回退到内存存储
+  // 查找或创建用户（数据库）
+  const user = await getOrCreateUserByPhone(phone);
   if (!user) {
-    let memoryUser = phoneUsers.get(phone);
-    if (!memoryUser) {
-      memoryUser = {
-        id: generateState(),
-        phone,
-        nickname: `用户${phone.slice(-4)}`,
-        avatar: '',
-        createdAt: Date.now(),
-      };
-      phoneUsers.set(phone, memoryUser);
-      console.log(`[Auth] 新用户注册 (内存): ${maskPhone(phone)}`);
-    }
-    user = {
-      id: memoryUser.id,
-      nickname: memoryUser.nickname,
-      avatar_url: memoryUser.avatar,
-      membership_type: 'free',
-      daily_quota: 10,
-    };
-    token = generateToken({ userId: memoryUser.id, phone });
+    return res.json({
+      success: false,
+      error: '创建用户失败，请稍后重试',
+    });
   }
+
+  const token = generateToken({ userId: user.id, phone });
 
   console.log(`[Auth] 用户登录: ${maskPhone(phone)}`);
 
-  // 检查是否为管理员
-  const isAdmin = ADMIN_ACCOUNTS[phone] !== undefined || (user as any).is_admin === true;
+  // 检查是否为管理员（从数据库获取）
+  const isAdmin = user.is_admin === true;
 
   res.json({
     success: true,

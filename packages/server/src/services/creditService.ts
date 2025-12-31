@@ -77,9 +77,6 @@ const CREDIT_RULES = {
 // 每日免费积分（每天重置）
 const DAILY_FREE_CREDITS = 20;
 
-// 管理员手机号（无限积分）
-const ADMIN_PHONES = ['15547160513'];
-
 // ============ 积分计算 ============
 
 /**
@@ -146,11 +143,11 @@ class CreditService {
     // 检查是否是管理员（无限积分）
     const { data: userData } = await supabase
       .from('users')
-      .select('phone')
+      .select('is_admin')
       .eq('id', userId)
       .single();
 
-    if (userData?.phone && ADMIN_PHONES.includes(userData.phone)) {
+    if (userData?.is_admin === true) {
       return { balance: 999999, totalEarned: 999999, totalSpent: 0 };
     }
 
@@ -257,12 +254,12 @@ class CreditService {
     // 检查是否是管理员（无限积分）
     const { data: userData } = await supabase
       .from('users')
-      .select('phone')
+      .select('is_admin')
       .eq('id', userId)
       .single();
 
-    if (userData?.phone && ADMIN_PHONES.includes(userData.phone)) {
-      console.log(`[Credit] 管理员 ${userData.phone} 跳过积分扣除`);
+    if (userData?.is_admin === true) {
+      console.log(`[Credit] 管理员跳过积分扣除`);
       return { success: true, newBalance: 999999, error: undefined };
     }
 

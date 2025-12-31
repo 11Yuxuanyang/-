@@ -5,7 +5,16 @@
 import jwt from 'jsonwebtoken';
 import { supabase, isSupabaseAvailable } from '../lib/supabase.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'default-secret-change-in-production';
+// JWT 密钥配置 - 生产环境必须设置 JWT_SECRET
+const JWT_SECRET = (() => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret && process.env.NODE_ENV === 'production') {
+    console.error('[Auth] 严重安全错误: 生产环境必须设置 JWT_SECRET 环境变量!');
+    process.exit(1);
+  }
+  return secret || 'dev-only-secret-not-for-production';
+})();
+
 const JWT_EXPIRES_IN = '7d';
 
 export interface JWTPayload {
@@ -20,6 +29,7 @@ export interface User {
   avatar_url?: string;
   membership_type: string;
   daily_quota: number;
+  is_admin?: boolean;
 }
 
 /**
@@ -266,4 +276,40 @@ export async function getTodayUsage(userId: string): Promise<number> {
     .gte('created_at', today.toISOString());
 
   return count || 0;
+}
+
+/**
+ * 检查手机号是否为管理员
+ */
+export async function isAdminByPhone(phone: string): Promise<boolean> {
+  if (!isSupabaseAvailable() || !supabase) {
+    return false;
+  }
+
+  const { data } = await supabase
+    .from('users')
+    .select('is_admin')
+    .eq('phone', phone)
+    .eq('is_admin', true)
+    .single();
+
+  return !!data;
+}
+
+/**
+ * 检查用户是否为管理员（通过 ID）
+ */
+export async function isAdminById(userId: string): Promise<boolean> {
+  if (!isSupabaseAvailable() || !supabase) {
+    return false;
+  }
+
+  const { data } = await supabase
+    .from('users')
+    .select('is_admin')
+    .eq('id', userId)
+    .eq('is_admin', true)
+    .single();
+
+  return !!data;
 }
